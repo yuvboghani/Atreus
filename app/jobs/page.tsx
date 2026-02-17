@@ -3,80 +3,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { Job } from "@/types"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
-import { SearchIcon, XIcon, ArrowUpDownIcon, ChevronDownIcon } from "lucide-react"
-
-// Mock data
-const MOCK_JOBS: Job[] = [
-    {
-        id: '1',
-        title: 'Senior Frontend Engineer',
-        company: 'TechCorp',
-        status: 'saved',
-        metadata: {
-            yoe: 5,
-            tc_min: 180,
-            tc_max: 220,
-            tech_stack: ['React', 'TypeScript', 'Next.js'],
-            location: 'Remote',
-            posted_date: '2026-01-25',
-            job_type: 'full-time',
-            remote: true
-        }
-    },
-    {
-        id: '2',
-        title: 'Backend Developer',
-        company: 'DevInc',
-        status: 'applied',
-        metadata: {
-            yoe: 3,
-            tc_min: 140,
-            tc_max: 160,
-            tech_stack: ['Python', 'Django', 'PostgreSQL'],
-            location: 'New York, NY',
-            posted_date: '2026-01-20',
-            job_type: 'full-time',
-            remote: false
-        }
-    },
-    {
-        id: '3',
-        title: 'Full Stack Engineer',
-        company: 'StartupXYZ',
-        status: 'interviewing',
-        metadata: {
-            yoe: 4,
-            tc_min: 160,
-            tc_max: 200,
-            tech_stack: ['Node.js', 'React', 'AWS', 'Docker'],
-            location: 'San Francisco, CA',
-            posted_date: '2026-01-22',
-            job_type: 'full-time',
-            remote: true
-        }
-    },
-    {
-        id: '4',
-        title: 'DevOps Engineer',
-        company: 'CloudNative Inc',
-        status: 'saved',
-        metadata: {
-            yoe: 6,
-            tc_min: 200,
-            tc_max: 250,
-            tech_stack: ['Kubernetes', 'Terraform', 'AWS', 'Go'],
-            location: 'Seattle, WA',
-            posted_date: '2026-01-28',
-            job_type: 'full-time',
-            remote: true
-        }
-    }
-]
+import { SearchIcon, XIcon, ArrowUpDownIcon } from "lucide-react"
+import { createClient } from "@/utils/supabase/client"
 
 type SortOption = 'date-desc' | 'date-asc' | 'tc-desc' | 'tc-asc' | 'yoe-asc' | 'yoe-desc'
 
@@ -91,19 +22,30 @@ export default function JobBoardPage() {
     const [techStack, setTechStack] = useState<string[]>([])
     const [techInput, setTechInput] = useState("")
     const [sortBy, setSortBy] = useState<SortOption>("date-desc")
+    const supabase = createClient()
 
     const { data: jobs, isLoading } = useQuery({
         queryKey: ['jobs', search, status, yoeMin, yoeMax, tcMin, tcMax, remoteOnly, techStack, sortBy],
         queryFn: async () => {
-            await new Promise(r => setTimeout(r, 300))
+            // Fetch all jobs from Supabase
+            const { data, error } = await supabase
+                .from('jobs')
+                .select('*')
+                .order('created_at', { ascending: false })
 
-            let filtered = MOCK_JOBS.filter(job => {
+            if (error) throw error
+            const allJobs = (data || []) as Job[]
+
+            // Client-side filtering (MVP approach)
+            let filtered = allJobs.filter(job => {
+                const meta = job.metadata || {}
+
                 // Search
                 if (search) {
                     const q = search.toLowerCase()
-                    const matchTitle = job.title.toLowerCase().includes(q)
-                    const matchCompany = job.company.toLowerCase().includes(q)
-                    const matchTech = job.metadata.tech_stack?.some(t => t.toLowerCase().includes(q))
+                    const matchTitle = (job.title || '').toLowerCase().includes(q)
+                    const matchCompany = (job.company || '').toLowerCase().includes(q)
+                    const matchTech = meta.tech_stack?.some((t: string) => t.toLowerCase().includes(q))
                     if (!matchTitle && !matchCompany && !matchTech) return false
                 }
 
@@ -111,22 +53,22 @@ export default function JobBoardPage() {
                 if (status !== "all" && job.status !== status) return false
 
                 // YoE
-                const jobYoe = job.metadata.yoe || 0
+                const jobYoe = meta.yoe || 0
                 if (yoeMin && jobYoe < parseInt(yoeMin)) return false
                 if (yoeMax && jobYoe > parseInt(yoeMax)) return false
 
                 // TC
-                const jobTcMin = job.metadata.tc_min || 0
-                const jobTcMax = job.metadata.tc_max || 999
+                const jobTcMin = meta.tc_min || 0
+                const jobTcMax = meta.tc_max || 999
                 if (tcMin && jobTcMax < parseInt(tcMin)) return false
                 if (tcMax && jobTcMin > parseInt(tcMax)) return false
 
                 // Remote
-                if (remoteOnly && !job.metadata.remote) return false
+                if (remoteOnly && !meta.remote) return false
 
                 // Tech Stack
                 if (techStack.length > 0) {
-                    const jobStack = job.metadata.tech_stack?.map(s => s.toLowerCase()) || []
+                    const jobStack = meta.tech_stack?.map((s: string) => s.toLowerCase()) || []
                     const hasMatch = techStack.some(t => jobStack.includes(t.toLowerCase()))
                     if (!hasMatch) return false
                 }
@@ -136,19 +78,22 @@ export default function JobBoardPage() {
 
             // Sort
             filtered.sort((a, b) => {
+                const metaA = a.metadata || {}
+                const metaB = b.metadata || {}
+
                 switch (sortBy) {
                     case 'date-desc':
-                        return (b.metadata.posted_date || '').localeCompare(a.metadata.posted_date || '')
+                        return (new Date(metaB.posted_date || a.created_at || '').getTime()) - (new Date(metaA.posted_date || b.created_at || '').getTime())
                     case 'date-asc':
-                        return (a.metadata.posted_date || '').localeCompare(b.metadata.posted_date || '')
+                        return (new Date(metaA.posted_date || a.created_at || '').getTime()) - (new Date(metaB.posted_date || b.created_at || '').getTime())
                     case 'tc-desc':
-                        return (b.metadata.tc_max || 0) - (a.metadata.tc_max || 0)
+                        return (metaB.tc_max || 0) - (metaA.tc_max || 0)
                     case 'tc-asc':
-                        return (a.metadata.tc_min || 0) - (b.metadata.tc_min || 0)
+                        return (metaA.tc_min || 0) - (metaB.tc_min || 0)
                     case 'yoe-desc':
-                        return (b.metadata.yoe || 0) - (a.metadata.yoe || 0)
+                        return (metaB.yoe || 0) - (metaA.yoe || 0)
                     case 'yoe-asc':
-                        return (a.metadata.yoe || 0) - (b.metadata.yoe || 0)
+                        return (metaA.yoe || 0) - (metaB.yoe || 0)
                     default:
                         return 0
                 }
@@ -288,8 +233,8 @@ export default function JobBoardPage() {
                     <button
                         onClick={() => setRemoteOnly(!remoteOnly)}
                         className={`h-8 px-3 border text-xs font-mono transition-colors ${remoteOnly
-                                ? 'bg-black text-white border-black'
-                                : 'bg-transparent text-black border-black/30 hover:border-black'
+                            ? 'bg-black text-white border-black'
+                            : 'bg-transparent text-black border-black/30 hover:border-black'
                             }`}
                     >
                         Remote only
@@ -359,36 +304,41 @@ export default function JobBoardPage() {
                         No jobs match your filters.
                     </div>
                 ) : (
-                    jobs?.map(job => (
-                        <Link
-                            key={job.id}
-                            href={`/jobs/${job.id}/tailor`}
-                            className="block px-6 py-5 hover:bg-black/[0.02] transition-colors group"
-                        >
-                            <div className="flex justify-between items-start mb-2">
-                                <div>
-                                    <h2 className="text-lg font-semibold group-hover:underline">{job.title}</h2>
-                                    <p className="text-sm opacity-60">{job.company} · {job.metadata.location}</p>
+                    jobs?.map(job => {
+                        const meta = job.metadata || {}
+                        return (
+                            <Link
+                                key={job.id}
+                                href={`/jobs/${job.id}/tailor`}
+                                className="block px-6 py-5 hover:bg-black/[0.02] transition-colors group"
+                            >
+                                <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                        <h2 className="text-lg font-semibold group-hover:underline">{job.title}</h2>
+                                        <p className="text-sm opacity-60">{job.company} · {meta.location || 'Remote'}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-semibold">
+                                            {meta.tc_min ? `$${meta.tc_min}k` : '???'} – {meta.tc_max ? `$${meta.tc_max}k` : '???'}
+                                        </div>
+                                        <div className="text-xs opacity-40">{meta.yoe || 0}+ years</div>
+                                    </div>
                                 </div>
-                                <div className="text-right">
-                                    <div className="font-semibold">${job.metadata.tc_min}k – ${job.metadata.tc_max}k</div>
-                                    <div className="text-xs opacity-40">{job.metadata.yoe}+ years</div>
+                                <div className="flex items-center gap-3 text-xs">
+                                    <span className="px-2 py-0.5 border border-black/30 uppercase tracking-wider">
+                                        {job.status}
+                                    </span>
+                                    {meta.remote && (
+                                        <span className="opacity-60">Remote</span>
+                                    )}
+                                    <span className="opacity-40">·</span>
+                                    <span className="opacity-40">{meta.posted_date || 'Recently'}</span>
+                                    <span className="opacity-40">·</span>
+                                    <span className="opacity-60">{meta.tech_stack?.join(', ')}</span>
                                 </div>
-                            </div>
-                            <div className="flex items-center gap-3 text-xs">
-                                <span className="px-2 py-0.5 border border-black/30 uppercase tracking-wider">
-                                    {job.status}
-                                </span>
-                                {job.metadata.remote && (
-                                    <span className="opacity-60">Remote</span>
-                                )}
-                                <span className="opacity-40">·</span>
-                                <span className="opacity-40">{job.metadata.posted_date}</span>
-                                <span className="opacity-40">·</span>
-                                <span className="opacity-60">{job.metadata.tech_stack?.join(', ')}</span>
-                            </div>
-                        </Link>
-                    ))
+                            </Link>
+                        )
+                    })
                 )}
             </div>
         </div>

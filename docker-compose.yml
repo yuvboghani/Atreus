@@ -1,0 +1,99 @@
+version: "3.8"
+
+networks:
+  jobops-net:
+    driver: bridge
+
+volumes:
+  latex_data:
+  db_data:
+  n8n_data:
+  latex_workspace:
+    # Shared volume for LaTeX and Next.js
+
+services:
+  next-app:
+    container_name: next-app
+    image: node:18-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - latex_workspace:/app/temp
+    command: npm run dev
+    networks:
+      - jobops-net
+    depends_on:
+      - supabase-db
+      - latex-renderer
+
+  latex-renderer:
+    build:
+      context: ./latex-renderer
+      dockerfile: Dockerfile
+    container_name: latex-renderer
+    ports:
+      - "5000:5000"
+    volumes:
+      - latex_workspace:/app/temp
+    networks:
+      - jobops-net
+
+  supabase-db:
+    image: postgres:15-alpine
+    container_name: supabase-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_DB: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - jobops-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  # Existing services (kept for continuity)
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_PORT=5678
+      - GENERIC_TIMEZONE=UTC
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - EXECUTIONS_TIMEOUT=600
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+    user: root
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/files
+      - ./scripts:/scripts
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - jobops-net
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - jobops-net
