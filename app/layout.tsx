@@ -14,6 +14,8 @@ export const metadata: Metadata = {
   description: "Automated Resume Tailoring — Direct Drive Architecture",
 };
 
+import { GlassNav } from "@/components/layout/glass-nav";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -21,9 +23,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} ${jetbrainsMono.variable}`}>
+      <body className={`${inter.className} ${jetbrainsMono.variable} bg-background text-foreground antialiased min-h-screen flex`}>
         <QueryProvider>
-          {children}
+          <GlassNav />
+          <main className="flex-1 ml-64 min-h-screen">
+            {children}
+          </main>
         </QueryProvider>
       </body>
     </html>
