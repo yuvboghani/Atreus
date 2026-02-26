@@ -31,7 +31,7 @@ async function runDiagnostics() {
         const result = await extractJson(messyInput);
         console.log("Result:", JSON.stringify(result, null, 2));
 
-        const stack = result.tech_stack || [];
+        const stack = result.data?.tech_stack || [];
         if (stack.includes("React") && stack.includes("Node") && stack.includes("Postgres")) {
             console.log("✅ PASS: Skills Normalized");
         } else {
