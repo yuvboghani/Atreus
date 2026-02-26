@@ -55,7 +55,7 @@ async function runDiagnostics() {
     const maliciousInput = "Increased revenue by 50% & managed a $10,000 budget for the #1 team. Used C++ and C#.";
     console.log(`Input: "${maliciousInput}"`);
     try {
-        const latex = await deepReasoning(maliciousInput);
+        const { content: latex } = await deepReasoning(maliciousInput);
         console.log("Output:\n", latex);
 
         // Check for escapes
@@ -103,7 +103,7 @@ async function runDiagnostics() {
             const textToSummarize = messagesToSummarize.map((m: any) => `${m.role}: ${m.content}`).join("\n");
 
             // Call AI directly
-            const newSummary = await chatAgent([
+            const { content: newSummary } = await chatAgent([
                 { role: 'system' as const, content: `Summarize this conversation history into a concise paragraph. RETAIN previous summary context: ${summary}` },
                 { role: 'user' as const, content: textToSummarize }
             ]);
