@@ -126,8 +126,10 @@ export default async function RadarPage() {
                         {jobs?.map((job) => {
                             const meta = job.metadata || {};
                             // Format Salary
-                            let salary = "---";
-                            if (meta.tc_min || meta.tc_max) {
+                            let salary = "N/A";
+                            if (job.salary_min || job.salary_max) {
+                                salary = `$${job.salary_min || '?'}-${job.salary_max || '?'}k`;
+                            } else if (meta.tc_min || meta.tc_max) {
                                 salary = `$${meta.tc_min || '?'}-${meta.tc_max || '?'}k`;
                             } else if (meta.salary) {
                                 salary = meta.salary; // fallback string
@@ -160,13 +162,8 @@ export default async function RadarPage() {
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
                                             <BookmarkButton jobId={job.id} initialStatus={status || null} />
-                                            <Link href={`/forge/${job.id}`}>
-                                                <Button
-                                                    size="sm"
-                                                    className="bg-black text-white border-2 border-black px-3 py-1 font-mono uppercase text-xs tracking-widest hover:bg-[#F4F4F0] hover:text-black transition-colors rounded-none"
-                                                >
-                                                    INITIALIZE <ArrowUpRightIcon className="ml-2 w-3 h-3" />
-                                                </Button>
+                                            <Link href={`/forge/${job.id}`} className="bg-black text-white px-3 py-1 font-mono uppercase text-xs tracking-widest hover:bg-[#F4F4F0] hover:text-black border-2 border-black inline-flex items-center transition-colors">
+                                                INITIALIZE <ArrowUpRightIcon className="ml-2 w-3 h-3" />
                                             </Link>
                                         </div>
                                     </TableCell>

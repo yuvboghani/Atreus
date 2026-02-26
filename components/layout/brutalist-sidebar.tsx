@@ -48,8 +48,10 @@ export function BrutalistSidebar() {
                 {/* Header */}
                 <div className="p-6 border-b-2 border-black flex items-center justify-between">
                     <div className="flex flex-col">
-                        <span className="text-2xl font-black tracking-tighter leading-none">ATREUS_OS</span>
-                        <span className="text-[10px] font-mono opacity-50 uppercase mt-1">Direct Drive v1.0</span>
+                        <Link href="/" className="text-2xl font-black tracking-[0.3em] uppercase leading-none hover:opacity-80 transition-opacity">
+                            A T R E U S
+                        </Link>
+                        <span className="text-[10px] font-mono opacity-50 uppercase mt-1">Autonomous Profile v1.0</span>
                     </div>
                 </div>
 
@@ -85,14 +87,8 @@ export function BrutalistSidebar() {
 
                 {/* Footer */}
                 <div className="p-4 border-t-2 border-black bg-black/5 flex flex-col gap-2">
-                    <Link
-                        href="/settings"
-                        className="flex items-center gap-2 text-[10px] font-mono hover:underline uppercase"
-                    >
-                        <SettingsIcon className="w-3 h-3" /> System Settings
-                    </Link>
                     <div className="text-[10px] font-mono opacity-40 uppercase">
-                        Targeting: Active
+                        System: Active
                     </div>
                 </div>
             </aside>

@@ -30,10 +30,15 @@ export async function signUp(formData: FormData) {
         password: formData.get('password') as string,
     }
 
-    const { error } = await supabase.auth.signUp(data)
+    const { data: authData, error } = await supabase.auth.signUp(data)
 
     if (error) {
         redirect(`/login?error=${encodeURIComponent(error.message)}`)
+    }
+
+    if (authData.session === null) {
+        // Requires email verification
+        redirect('/login?message=Account created. Please check your email to verify before signing in.')
     }
 
     revalidatePath('/', 'layout')
