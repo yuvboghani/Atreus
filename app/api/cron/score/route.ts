@@ -1,55 +1,42 @@
 import { createServerClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
-
-// Helper for skill overlap
-function calculateMatch(jobSkills: string[], userSkills: string[]): number {
-    if (!jobSkills || jobSkills.length === 0) return 50; // Neutral if unknown
-    const normalizedUser = userSkills.map(s => s.toLowerCase());
-    const matches = jobSkills.filter(s => normalizedUser.includes(s.toLowerCase()));
-
-    // Simple Percentage score
-    // Bonus for high overlap
-    const score = Math.round((matches.length / jobSkills.length) * 100);
-    return Math.min(score, 100);
-}
+import { calculateMatchScore } from "@/lib/scoring";
 
 export async function GET(req: Request) {
-    // SECURITY: Check CRON_SECRET if in production, or just allow for now in dev/MVP.
-    // const authHeader = req.headers.get('authorization');
-    // if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) ...
-
     try {
-        // 1. Get User Skills (Assuming single user for Atreus, or we iterate)
-        // For multi-user, this cron would need to be per-user or batch process all.
         const supabase = await createServerClient();
         if (!supabase) return NextResponse.json({ error: "Database Connection Failed" }, { status: 500 });
-        const { data: profiles } = await supabase.from('profiles').select('*').limit(1);
+
+        // 1. Get User Profile
+        const { data: profiles } = await supabase.from('profiles').select('skill_bank, edu_level, current_yoe').limit(1);
         if (!profiles || profiles.length === 0) return NextResponse.json({ message: "No profiles found" });
-        const user = profiles[0];
-        const userSkills = user.skill_bank || [];
 
-        // 2. Get Unscored Jobs (or all jobs to refresh)
-        // Let's do unscored or old ones. For now, just ones with match_score = 0
+        const userProfile = {
+            skill_bank: profiles[0].skill_bank || [],
+            edu_level: profiles[0].edu_level ?? 2,
+            current_yoe: profiles[0].current_yoe ?? 0,
+        };
+
+        // 2. Get Unscored Jobs (match_score = 0)
         const { data: jobs } = await supabase.from('jobs').select('*').eq('match_score', 0).limit(50);
-
         if (!jobs || jobs.length === 0) return NextResponse.json({ message: "No jobs to score" });
 
-        const updates = [];
-        for (const job of jobs) {
-            const jobSkills = job.metadata?.tech_stack || [];
-            // If no tech stack extracted, we might try to extract from description regex?
-            // For now, rely on metadata.
-            const score = calculateMatch(jobSkills, userSkills);
+        // 3. Score each job using the Intelligent Matching Engine
+        const updates = jobs.map(job => {
+            const jobParsed = {
+                tech_stack: job.metadata?.tech_stack || [],
+                min_yoe: Number(job.metadata?.min_yoe) || 0,
+                req_edu: Number(job.metadata?.req_edu) || 2,
+                is_entry_level: Boolean(job.metadata?.is_entry_level),
+            };
 
-            updates.push({
+            return {
                 id: job.id,
-                match_score: score
-            });
-        }
+                match_score: calculateMatchScore(jobParsed, userProfile),
+            };
+        });
 
-        // 3. Batch Update
-        // Supabase doesn't have a clean "bulk update different values" in one query easily via JS SDK 
-        // without RPC or multiple requests. We'll do parallel promises for now (limit 50).
+        // 4. Batch Update
         await Promise.all(updates.map(u =>
             supabase.from('jobs').update({ match_score: u.match_score }).eq('id', u.id)
         ));

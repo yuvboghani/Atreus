@@ -42,10 +42,10 @@ export function BookmarkButton({ jobId, initialStatus }: BookmarkButtonProps) {
             size="sm"
             variant={isSaved ? "default" : "outline"}
             className={cn(
-                "font-bold transition-none border-2 border-black h-8 text-[10px] uppercase tracking-wider w-24",
+                "font-mono font-bold transition-colors border-2 border-black h-8 text-[10px] uppercase tracking-widest w-24 rounded-none",
                 isSaved
-                    ? "bg-black text-white hover:bg-black"
-                    : "bg-transparent hover:bg-black hover:text-white"
+                    ? "bg-black text-white hover:bg-[#F4F4F0] hover:text-black"
+                    : "bg-[#F4F4F0] text-black hover:bg-black hover:text-white"
             )}
             onClick={handleBookmark}
             disabled={loading || (isSaved && status !== 'saved')} // Disable if applied/interviewing etc

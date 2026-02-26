@@ -20,11 +20,36 @@ export default async function RadarPage() {
         user = data?.user || null;
     } catch { /* no session */ }
 
-    // 1. Fetch All Jobs (public + private for single-owner mode)
-    const { data: jobs, error } = await supabase
+    // Try sorting by match_score (requires migration 000002 to be applied)
+    let jobs: any[] | null = null;
+    let error: any = null;
+
+    const result1 = await supabase
         .from('jobs')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('match_score', { ascending: false });
+
+    if (result1.error?.message?.includes('does not exist')) {
+        // Fallback: match_score column not yet in DB
+        const result2 = await supabase
+            .from('jobs')
+            .select('*')
+            .order('created_at', { ascending: false });
+        jobs = result2.data;
+        error = result2.error;
+
+        // In-memory sort by metadata.match_score since DB column is missing
+        if (jobs) {
+            jobs.sort((a, b) => {
+                const scoreA = a.match_score ?? a.metadata?.match_score ?? 0;
+                const scoreB = b.match_score ?? b.metadata?.match_score ?? 0;
+                return scoreB - scoreA;
+            });
+        }
+    } else {
+        jobs = result1.data;
+        error = result1.error;
+    }
 
     if (error) {
         return <div className="p-8 font-mono text-red-500">ERROR: {error.message}</div>;
@@ -62,7 +87,7 @@ export default async function RadarPage() {
 
     const existingAppJobIds = new Set(allApps.map(a => a.job_id));
     const highMatchTargets = jobs?.filter(job =>
-        ((job.metadata?.match_score) || 0) >= 80 && !existingAppJobIds.has(job.id)
+        ((job.match_score ?? job.metadata?.match_score) || 0) >= 80 && !existingAppJobIds.has(job.id)
     ).length || 0;
 
 
@@ -109,7 +134,7 @@ export default async function RadarPage() {
                             }
 
                             const status = statusMap.get(job.id);
-                            const score = job.metadata?.match_score || 0;
+                            const score = job.match_score ?? job.metadata?.match_score ?? 0;
 
                             return (
                                 <TableRow key={job.id} className="group cursor-pointer">
@@ -133,10 +158,13 @@ export default async function RadarPage() {
                                     <TableCell>{meta.location || "Unknown"}</TableCell>
                                     <TableCell>{salary}</TableCell>
                                     <TableCell className="text-right">
-                                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-none">
+                                        <div className="flex items-center justify-end gap-2">
                                             <BookmarkButton jobId={job.id} initialStatus={status || null} />
                                             <Link href={`/forge/${job.id}`}>
-                                                <Button size="sm" variant="outline" className="border-black transition-none">
+                                                <Button
+                                                    size="sm"
+                                                    className="bg-black text-white border-2 border-black px-3 py-1 font-mono uppercase text-xs tracking-widest hover:bg-[#F4F4F0] hover:text-black transition-colors rounded-none"
+                                                >
                                                     INITIALIZE <ArrowUpRightIcon className="ml-2 w-3 h-3" />
                                                 </Button>
                                             </Link>

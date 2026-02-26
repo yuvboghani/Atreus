@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   description: "Automated Resume Tailoring — Direct Drive Architecture",
 };
 
-import { GlassNav } from "@/components/layout/glass-nav";
+import { BrutalistSidebar } from "@/components/layout/brutalist-sidebar";
 
 export default function RootLayout({
   children,
@@ -25,8 +25,8 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} ${jetbrainsMono.variable} bg-background text-foreground antialiased min-h-screen flex`}>
         <QueryProvider>
-          <GlassNav />
-          <main className="flex-1 ml-64 min-h-screen">
+          <BrutalistSidebar />
+          <main className="flex-1 min-h-screen relative">
             {children}
           </main>
         </QueryProvider>

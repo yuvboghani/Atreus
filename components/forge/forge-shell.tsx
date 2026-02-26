@@ -13,14 +13,15 @@ interface ChatMessage {
 
 interface ForgeShellProps {
     job: any;
+    skillBank: string[];
 }
 
 /**
  * ForgeShell — Client wrapper that holds shared LaTeX state
- * between the Workbench (middle pane) and the Strategist (right pane).
+ * between the Workbench (left pane) and the Strategist (right pane).
  * Also hosts the full Strategist chat UI with AI-powered mutation.
  */
-export function ForgeShell({ job }: ForgeShellProps) {
+export function ForgeShell({ job, skillBank }: ForgeShellProps) {
     // Shared LaTeX state — initialized with template, mutated by Strategist
     const getInitialLatex = useCallback(() => {
         const meta = job.metadata || {};
@@ -108,20 +109,10 @@ Core competencies aligned with target stack: ${techStack}.
      * 3. Regex extract ```latex ... ``` block
      * 4. If found → setCurrentLatex (instant middle pane refresh)
      */
-    const handleChatSubmit = useCallback(async (e: FormEvent) => {
-        e.preventDefault();
-        const prompt = chatInput.trim();
-        if (!prompt || isThinking) return;
-
-        // Append user message
-        const userMsg: ChatMessage = { role: 'user', content: prompt, timestamp: Date.now() };
-        setChatHistory(prev => [...prev, userMsg]);
-        setChatInput('');
+    const executeMutation = useCallback(async (prompt: string, updatedHistory: ChatMessage[]) => {
         setIsThinking(true);
-
         try {
-            // Build history for API (exclude system bootstrap msg)
-            const apiHistory = chatHistory
+            const apiHistory = updatedHistory
                 .filter(m => m.role !== 'system')
                 .map(m => ({ role: m.role, content: m.content }));
 
@@ -146,7 +137,6 @@ Core competencies aligned with target stack: ${techStack}.
             const aiMsg: ChatMessage = { role: 'assistant', content: aiResponse, timestamp: Date.now() };
             setChatHistory(prev => [...prev, aiMsg]);
 
-            // THE MAGIC — Regex extraction of LaTeX code block
             const latexMatch = aiResponse.match(/```latex\n([\s\S]*?)```/);
             if (latexMatch && latexMatch[1]) {
                 const newLatex = latexMatch[1].trim();
@@ -165,33 +155,76 @@ Core competencies aligned with target stack: ${techStack}.
             setIsThinking(false);
             inputRef.current?.focus();
         }
-    }, [chatInput, isThinking, chatHistory, currentLatex]);
+    }, [currentLatex]);
+
+    const handleChatSubmit = useCallback(async (e: FormEvent) => {
+        e.preventDefault();
+        const prompt = chatInput.trim();
+        if (!prompt || isThinking) return;
+
+        const userMsg: ChatMessage = { role: 'user', content: prompt, timestamp: Date.now() };
+        const newHistory = [...chatHistory, userMsg];
+        setChatHistory(newHistory);
+        setChatInput('');
+
+        await executeMutation(prompt, newHistory);
+    }, [chatInput, isThinking, chatHistory, executeMutation]);
+
+    const handleInjectSkill = useCallback(async (skill: string) => {
+        if (isThinking) return;
+        const prompt = `I want to add the skill '${skill}' to my resume to better match the job description. Please rewrite the relevant bullet points or projects to legitimately and naturally include this skill.`;
+        const userMsg: ChatMessage = { role: 'user', content: prompt, timestamp: Date.now() };
+        const newHistory = [...chatHistory, userMsg];
+        setChatHistory(newHistory);
+        await executeMutation(prompt, newHistory);
+    }, [chatHistory, isThinking, executeMutation]);
+
+    const handleRejectSkill = useCallback(async (skill: string) => {
+        if (isThinking) return;
+        const prompt = `Remove the skill '${skill}' from my resume. It is implausible for my experience or a hallucination. Rewrite any bullet points that mention it to focus on my actual strengths.`;
+        const userMsg: ChatMessage = { role: 'user', content: prompt, timestamp: Date.now() };
+        const newHistory = [...chatHistory, userMsg];
+        setChatHistory(newHistory);
+        await executeMutation(prompt, newHistory);
+    }, [chatHistory, isThinking, executeMutation]);
+
+    const handleBatchSkillUpdate = useCallback(async (injections: string[], rejections: string[]) => {
+        if (isThinking) return;
+
+        let promptParts = ["I am updating my resume skills for this specific job."];
+        if (injections.length > 0) {
+            promptParts.push(`Please naturally WEAVE IN these missing skills: ${injections.join(', ')}.`);
+        }
+        if (rejections.length > 0) {
+            promptParts.push(`Please REMOVE these irrelevant/hallucinated skills: ${rejections.join(', ')}.`);
+        }
+        promptParts.push("Rewrite the relevant LaTeX bullet points and return the full updated LaTeX block.");
+
+        const prompt = promptParts.join(' ');
+        const userMsg: ChatMessage = { role: 'user', content: prompt, timestamp: Date.now() };
+        const newHistory = [...chatHistory, userMsg];
+        setChatHistory(newHistory);
+        await executeMutation(prompt, newHistory);
+    }, [chatHistory, isThinking, executeMutation]);
 
     return (
         <ResizablePanelGroup direction="horizontal" className="flex-1">
 
-            {/* LEFT: RAW INTEL */}
-            <ResizablePanel defaultSize={25} minSize={20} maxSize={40} className="bg-[#F4F4F0]">
-                <div className="h-full flex flex-col">
-                    <div className="h-8 border-b-2 border-black flex items-center px-2 bg-muted/10 justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wider">RAW INTEL</span>
-                    </div>
-                    <div className="p-4 flex-1 overflow-auto text-xs whitespace-pre-wrap leading-relaxed opacity-80">
-                        {job.raw_description || "NO DATA"}
-                    </div>
-                </div>
+            {/* LEFT: THE WORKBENCH (75%) */}
+            <ResizablePanel defaultSize={75} minSize={50}>
+                <ForgeWorkbench
+                    job={job}
+                    currentLatex={currentLatex}
+                    skillBank={skillBank}
+                    onInjectSkill={handleInjectSkill}
+                    onRejectSkill={handleRejectSkill}
+                    onBatchSkillUpdate={handleBatchSkillUpdate}
+                />
             </ResizablePanel>
 
             <ResizableHandle withHandle />
 
-            {/* MIDDLE: THE WORKBENCH */}
-            <ResizablePanel defaultSize={50} minSize={30}>
-                <ForgeWorkbench job={job} currentLatex={currentLatex} />
-            </ResizablePanel>
-
-            <ResizableHandle withHandle />
-
-            {/* RIGHT: AI STRATEGIST */}
+            {/* RIGHT: AI STRATEGIST (25%) */}
             <ResizablePanel defaultSize={25} minSize={20} className="bg-black text-white">
                 <div className="h-full flex flex-col">
                     {/* Header */}
@@ -205,7 +238,7 @@ Core competencies aligned with target stack: ${techStack}.
                                     {mutationCount} MUTATION{mutationCount > 1 ? 'S' : ''}
                                 </span>
                             )}
-                            <div className={`w-2 h-2 rounded-full ${isThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`}></div>
+                            <div className={`w-2 h-2 ${isThinking ? 'bg-yellow-500' : 'bg-green-500'} animate-pulse`}></div>
                         </div>
                     </div>
 
@@ -213,10 +246,10 @@ Core competencies aligned with target stack: ${techStack}.
                     <div className="p-3 flex-1 overflow-auto font-mono text-xs space-y-3">
                         {chatHistory.map((msg, i) => (
                             <div key={i} className={`${msg.role === 'user'
-                                    ? 'border-l-2 border-white/40 pl-2'
-                                    : msg.role === 'system'
-                                        ? 'opacity-50 border-l-2 border-white/20 pl-2'
-                                        : 'text-green-400'
+                                ? 'border-l-2 border-white/40 pl-2'
+                                : msg.role === 'system'
+                                    ? 'opacity-50 border-l-2 border-white/20 pl-2'
+                                    : 'text-green-400'
                                 }`}>
                                 {msg.role === 'user' && (
                                     <div className="text-[9px] text-white/40 mb-0.5 uppercase">YOU</div>

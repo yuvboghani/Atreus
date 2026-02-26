@@ -1,25 +1,83 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { CrosshairIcon, CpuIcon, FileTextIcon, CheckIcon, DownloadIcon, XIcon, Loader2Icon, AlertTriangleIcon } from "lucide-react";
+import { CrosshairIcon, CpuIcon, FileTextIcon, CheckIcon, DownloadIcon, XIcon, Loader2Icon, AlertTriangleIcon, ShieldCheckIcon, ShieldAlertIcon } from "lucide-react";
 import { syncToArsenal } from "@/app/actions/sync-arsenal";
 
 interface ForgeWorkbenchProps {
     job: any;
     currentLatex: string;
+    skillBank: string[];
     applicationId?: string;
+    onInjectSkill?: (skill: string) => void;
+    onRejectSkill?: (skill: string) => void;
+    onBatchSkillUpdate?: (injections: string[], rejections: string[]) => void;
 }
 
-export function ForgeWorkbench({ job, currentLatex, applicationId }: ForgeWorkbenchProps) {
+export function ForgeWorkbench({
+    job,
+    currentLatex,
+    skillBank,
+    applicationId,
+    onInjectSkill,
+    onRejectSkill,
+    onBatchSkillUpdate
+}: ForgeWorkbenchProps) {
     const [mode, setMode] = useState<'working' | 'confirming'>('working');
     const [loading, setLoading] = useState(false);
+
+    // === BATCH STAGING STATE ===
+    const [stagedInjections, setStagedInjections] = useState<string[]>([]);
+    const [stagedRejections, setStagedRejections] = useState<string[]>([]);
+
+    const toggleInjection = (skill: string) => {
+        setStagedInjections(prev =>
+            prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
+        );
+    };
+
+    const toggleRejection = (skill: string) => {
+        setStagedRejections(prev =>
+            prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]
+        );
+    };
+
+    const handleBatchExecute = () => {
+        if (onBatchSkillUpdate) {
+            onBatchSkillUpdate(stagedInjections, stagedRejections);
+            setStagedInjections([]);
+            setStagedRejections([]);
+        }
+    };
 
     // LaTeX compilation state
     const [pdfUrl, setPdfUrl] = useState<string | null>(null);
     const [isCompiling, setIsCompiling] = useState(false);
     const [compileError, setCompileError] = useState<string | null>(null);
+
+    // === STEP 3: GAP ANALYSIS — Intersection math ===
+    const { acquiredSkills, missingSkills } = useMemo(() => {
+        const jobTechStack: string[] = job.metadata?.tech_stack || [];
+        const userSkills = skillBank || [];
+
+        // Normalize for case-insensitive comparison
+        const userSkillsLower = new Set(userSkills.map((s: string) => s.toLowerCase().trim()));
+
+        const acquired: string[] = [];
+        const missing: string[] = [];
+
+        jobTechStack.forEach((skill: string) => {
+            if (userSkillsLower.has(skill.toLowerCase().trim())) {
+                acquired.push(skill);
+            } else {
+                missing.push(skill);
+            }
+        });
+
+        return { acquiredSkills: acquired, missingSkills: missing };
+    }, [job.metadata?.tech_stack, skillBank]);
 
     const handleCompile = useCallback(async () => {
         setIsCompiling(true);
@@ -99,6 +157,11 @@ export function ForgeWorkbench({ job, currentLatex, applicationId }: ForgeWorkbe
         }
     };
 
+    const totalSkills = acquiredSkills.length + missingSkills.length;
+    const coveragePercent = totalSkills > 0
+        ? Math.round((acquiredSkills.length / totalSkills) * 100)
+        : 0;
+
     return (
         <div className="h-full flex flex-col bg-background">
             {mode === 'confirming' ? (
@@ -125,7 +188,7 @@ export function ForgeWorkbench({ job, currentLatex, applicationId }: ForgeWorkbe
                     </div>
                 </div>
             ) : (
-                <Tabs defaultValue="pitch" className="flex-1 flex flex-col p-0">
+                <Tabs defaultValue="target" className="flex-1 flex flex-col p-0">
                     <div className="border-b-2 border-black px-4 py-2 bg-muted/5">
                         <TabsList className="w-full justify-start gap-4 border-0 p-0 h-auto rounded-none">
                             <TabsTrigger value="target" className="data-[state=active]:bg-black data-[state=active]:text-white border-2 border-transparent data-[state=active]:border-black px-4 py-1 text-xs font-bold uppercase">Target</TabsTrigger>
@@ -135,28 +198,145 @@ export function ForgeWorkbench({ job, currentLatex, applicationId }: ForgeWorkbe
                     </div>
 
                     <div className="flex-1 overflow-hidden relative bg-white">
+
+                        {/* ====== TARGET TAB — 2-Column Grid: RAW INTEL + GAP ANALYSIS ====== */}
                         <TabsContent value="target" className="h-full m-0 p-0 border-0 shadow-none">
-                            <div className="p-8 max-w-2xl mx-auto h-full overflow-auto">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <CrosshairIcon className="w-6 h-6" />
-                                    <h2 className="text-2xl font-black uppercase">Mission Profile</h2>
-                                </div>
-                                <div className="space-y-6">
-                                    <div className="border-2 border-black p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                                        <h3 className="font-bold text-sm uppercase mb-2">Gap Analysis</h3>
-                                        <div className="space-y-2">
-                                            {[1, 2, 3].map(i => (
-                                                <div key={i} className="flex items-start gap-2 text-xs">
-                                                    <div className="w-4 h-4 border-2 border-black shrink-0 flex items-center justify-center">?</div>
-                                                    <span>Click to analyze requirement gap...</span>
-                                                </div>
-                                            ))}
-                                        </div>
+                            <div className="h-full grid grid-cols-2 gap-0">
+
+                                {/* LEFT COLUMN: RAW INTEL */}
+                                <div className="h-full flex flex-col border-r-2 border-black">
+                                    <div className="h-10 border-b-2 border-black flex items-center px-4 bg-[#F4F4F0] shrink-0">
+                                        <span className="text-[10px] font-black uppercase tracking-widest">[ RAW INTEL // JOB DESCRIPTION ]</span>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: 'calc(100vh - 140px)' }}>
+                                        <pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed text-[#333] break-words">
+                                            {job.raw_description || "NO DATA INGESTED"}
+                                        </pre>
                                     </div>
                                 </div>
+
+                                {/* RIGHT COLUMN: GAP ANALYSIS */}
+                                <div className="h-full flex flex-col">
+                                    <div className="h-10 border-b-2 border-black flex items-center px-4 bg-[#F4F4F0] shrink-0 justify-between">
+                                        <span className="text-[10px] font-black uppercase tracking-widest">[ GAP ANALYSIS // SKILL OVERLAP ]</span>
+                                        {totalSkills > 0 && (
+                                            <span className="text-[10px] font-mono font-bold">
+                                                {coveragePercent}% COVERAGE
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-4 space-y-6" style={{ maxHeight: 'calc(100vh - 140px)' }}>
+
+                                        {totalSkills === 0 ? (
+                                            /* Empty state — no tech stack or skills */
+                                            <div className="border-2 border-black border-dashed p-6 text-center">
+                                                <div className="font-black text-sm uppercase tracking-widest mb-2">NO INTEL AVAILABLE</div>
+                                                <div className="text-[10px] font-mono opacity-60 leading-relaxed">
+                                                    Job tech_stack not detected or Arsenal skill_bank empty.
+                                                    <br />Seed your Arsenal with skills to enable gap analysis.
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* ACQUIRED ASSETS */}
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <ShieldCheckIcon className="w-4 h-4" />
+                                                        <h3 className="text-xs font-black uppercase tracking-widest">ACQUIRED ASSETS</h3>
+                                                        <span className="text-[10px] font-mono opacity-50">({acquiredSkills.length})</span>
+                                                    </div>
+                                                    {acquiredSkills.length > 0 ? (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {acquiredSkills.map((skill) => {
+                                                                const isStaged = stagedRejections.includes(skill);
+                                                                return (
+                                                                    <span
+                                                                        key={skill}
+                                                                        className={`flex items-center text-[11px] font-mono font-bold pl-3 border-2 border-black uppercase tracking-wider transition-colors ${isStaged ? 'bg-white text-black' : 'bg-black text-white'
+                                                                            }`}
+                                                                    >
+                                                                        {skill}
+                                                                        <button
+                                                                            onClick={() => toggleRejection(skill)}
+                                                                            className={`ml-2 px-2 border-l-2 border-black transition-colors ${isStaged ? 'bg-black text-white' : 'hover:bg-white hover:text-black'
+                                                                                }`}
+                                                                            title={isStaged ? "UNDO REJECTION" : "REJECT SKILL"}
+                                                                        >
+                                                                            {isStaged ? "[UNDO]" : "[-]"}
+                                                                        </button>
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-[10px] font-mono opacity-40 border-2 border-dashed border-black/20 p-3">
+                                                            No matching skills detected in your Arsenal.
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* DIVIDER */}
+                                                <div className="border-t-2 border-black" />
+
+                                                {/* MISSING INTEL */}
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <ShieldAlertIcon className="w-4 h-4 text-red-600" />
+                                                        <h3 className="text-xs font-black uppercase tracking-widest">MISSING INTEL</h3>
+                                                        <span className="text-[10px] font-mono text-red-600">({missingSkills.length})</span>
+                                                    </div>
+                                                    {missingSkills.length > 0 ? (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {missingSkills.map((skill) => {
+                                                                const isStaged = stagedInjections.includes(skill);
+                                                                return (
+                                                                    <span
+                                                                        key={skill}
+                                                                        className={`flex items-center text-[11px] font-mono font-bold pl-3 border-2 border-black uppercase tracking-wider transition-colors ${isStaged ? 'bg-black text-white' : 'bg-transparent text-red-600'
+                                                                            }`}
+                                                                    >
+                                                                        {skill}
+                                                                        <button
+                                                                            onClick={() => toggleInjection(skill)}
+                                                                            className={`ml-2 px-2 border-l-2 border-black transition-colors ${isStaged ? 'bg-white text-black' : 'hover:bg-black hover:text-white'
+                                                                                }`}
+                                                                            title={isStaged ? "UNDO INJECTION" : "INJECT SKILL"}
+                                                                        >
+                                                                            {isStaged ? "[UNDO]" : "[+]"}
+                                                                        </button>
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-[10px] font-mono text-green-700 border-2 border-green-700 p-3 font-bold">
+                                                            ✓ FULL COVERAGE — All required skills acquired.
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* BATCH EXECUTION BUTTON */}
+                                                {(stagedInjections.length > 0 || stagedRejections.length > 0) && (
+                                                    <button
+                                                        onClick={handleBatchExecute}
+                                                        className="w-full mt-4 p-4 border-2 border-black bg-black text-white hover:bg-[#F4F4F0] hover:text-black uppercase font-mono font-black tracking-widest text-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all"
+                                                    >
+                                                        [ EXECUTE SKILL OVERRIDE ]
+                                                        <div className="text-[9px] font-normal mt-1 opacity-70">
+                                                            {stagedInjections.length > 0 && `+${stagedInjections.length} INJECTION `}
+                                                            {stagedRejections.length > 0 && `-${stagedRejections.length} REJECTION`}
+                                                        </div>
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
                             </div>
                         </TabsContent>
 
+                        {/* ====== PAYLOAD TAB ====== */}
                         <TabsContent value="payload" className="h-full m-0 p-0 border-0 shadow-none">
                             <div className="p-4 h-full overflow-auto">
                                 <div className="flex items-center gap-3 mb-4">
@@ -169,6 +349,7 @@ export function ForgeWorkbench({ job, currentLatex, applicationId }: ForgeWorkbe
                             </div>
                         </TabsContent>
 
+                        {/* ====== PITCH TAB ====== */}
                         <TabsContent value="pitch" className="h-full m-0 p-0 border-0 shadow-none">
                             <div className="h-full flex flex-col">
                                 {/* Compile Button Bar */}

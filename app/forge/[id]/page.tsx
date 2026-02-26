@@ -1,4 +1,5 @@
 import { createServerClient } from "@/utils/supabase/server";
+import { createAuthClient } from "@/utils/supabase/auth-server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
@@ -23,6 +24,21 @@ export default async function ForgeWorkspacePage({ params }: { params: Promise<{
         return <div className="p-8 text-red-500 font-mono">JOB_NOT_FOUND // {id}</div>;
     }
 
+    // Fetch user profile for gap analysis
+    let skillBank: string[] = [];
+    try {
+        const authClient = await createAuthClient();
+        const { data: { user } } = await authClient.auth.getUser();
+        if (user) {
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('skill_bank')
+                .eq('id', user.id)
+                .single();
+            skillBank = profile?.skill_bank || [];
+        }
+    } catch { /* no session — gap analysis will show all as missing */ }
+
     return (
         <div className="h-screen flex flex-col overflow-hidden font-mono bg-[#F4F4F0] text-[#111111]">
             {/* HEADER */}
@@ -46,8 +62,8 @@ export default async function ForgeWorkspacePage({ params }: { params: Promise<{
                 </div>
             </div>
 
-            {/* WORKSPACE — Client Shell handles all 3 panes + shared state */}
-            <ForgeShell job={job} />
+            {/* WORKSPACE — Client Shell handles 2 panes + shared state */}
+            <ForgeShell job={job} skillBank={skillBank} />
         </div>
     );
 }

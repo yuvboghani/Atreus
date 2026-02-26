@@ -1,6 +1,7 @@
 import { createServerClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
 import { extractJson } from "@/lib/ai/selector";
+import { logTokenUsage } from "@/lib/telemetry";
 
 export async function POST(req: Request) {
     try {
@@ -20,8 +21,14 @@ export async function POST(req: Request) {
         // REAL AI EXTRACTION: GLM-4-Plus
         console.log("Igniting GLM-4-Plus for extraction...");
         let extracted: any = {};
+        let usage: any = null;
         try {
-            extracted = await extractJson(text);
+            const result = await extractJson(text, 'glm-4-plus');
+            extracted = result.data;
+            usage = result.usage;
+
+            // Log Telemetry
+            logTokenUsage('[PRIVATE_INGEST]', usage, 'glm-4-plus');
         } catch (e) {
             console.error("Extraction failed, falling back to minimal:", e);
             extracted = { title: "Untitled (Extraction Failed)", company: "Unknown" };

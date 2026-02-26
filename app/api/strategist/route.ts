@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { chatAgent } from "@/lib/ai/selector";
+import { logTokenUsage } from "@/lib/telemetry";
 
 const STRATEGIST_SYSTEM_PROMPT = `You are an expert Resume Strategist embedded in Project Atreus — an autonomous career operations system. The user will give you commands to modify their current LaTeX resume. You are precise, brutalist, and direct.
 
@@ -62,7 +63,10 @@ export async function POST(req: NextRequest) {
         console.log("[STRATEGIST] LaTeX length:", currentLatex?.length || 0);
 
         // Call GLM-4-Plus via the existing chatAgent
-        const response = await chatAgent(messages);
+        const { content: response, usage } = await chatAgent(messages);
+
+        // Telemetry logging
+        logTokenUsage('[STRATEGIST]', usage, 'glm-4-plus');
 
         if (!response) {
             return NextResponse.json(

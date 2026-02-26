@@ -11,10 +11,10 @@ const openai = new OpenAI({
  * Use Case: High-speed, low-cost tasks (extraction, classification).
  * Cost Target: Minimal.
  */
-export async function extractJson(text: string): Promise<any> {
+export async function extractJson(text: string, model: string = "glm-4-plus"): Promise<{ data: any, usage: any }> {
     try {
         const response = await openai.chat.completions.create({
-            model: "glm-4-plus", // Forcing Plus for reliability
+            model, // Forcing Plus for reliability
             messages: [
                 {
                     role: "system",
@@ -44,7 +44,10 @@ export async function extractJson(text: string): Promise<any> {
         const content = response.choices[0]?.message?.content || "{}";
         // Strip markdown if present
         const cleanContent = content.replace(/```json/g, "").replace(/```/g, "").trim();
-        return JSON.parse(cleanContent);
+        return {
+            data: JSON.parse(cleanContent),
+            usage: response.usage
+        };
     } catch (error) {
         console.error("The Parser failed:", error);
         throw new Error("Failed to extract JSON from job description.");
@@ -56,18 +59,24 @@ export async function extractJson(text: string): Promise<any> {
  * Use Case: Balanced reasoning (Assistants, Drafting).
  * Cost Target: Moderate.
  */
-export async function chatAgent(history: { role: "system" | "user" | "assistant", content: string }[]) {
+export async function chatAgent(history: { role: "system" | "user" | "assistant", content: string }[], model: string = "glm-4-plus"): Promise<{ content: string, usage: any }> {
     try {
         const response = await openai.chat.completions.create({
-            model: "glm-4-plus", // Forcing Plus for reliability
+            model, // Forcing Plus for reliability
             messages: history,
             temperature: 0.7, // Creative but grounded
             max_tokens: 2048
         });
-        return response.choices[0]?.message?.content;
+        return {
+            content: response.choices[0]?.message?.content || "",
+            usage: response.usage
+        };
     } catch (error) {
         console.error("The Strategist failed:", error);
-        return "I am unable to strategize at the moment.";
+        return {
+            content: "I am unable to strategize at the moment.",
+            usage: null
+        };
     }
 }
 
@@ -76,7 +85,7 @@ export async function chatAgent(history: { role: "system" | "user" | "assistant"
  * Use Case: Deep reasoning, complex coding, critical analysis.
  * Cost Target: High (Use sparingly).
  */
-export async function deepReasoning(prompt: string, context?: any) {
+export async function deepReasoning(prompt: string, context?: any, model: string = "glm-4-plus") {
     try {
         const jobContext = context ? `JOB_CONTEXT: Role: ${context.title} @ ${context.company}. Key Reqs: ${JSON.stringify(context.tech_stack)}` : "";
 
@@ -102,7 +111,7 @@ export async function deepReasoning(prompt: string, context?: any) {
     `;
 
         const response = await openai.chat.completions.create({
-            model: "glm-4-plus",
+            model,
             messages: [
                 { role: "system", content: surgeonSystemPrompt },
                 { role: "user", content: "OPTIMIZE THIS CONTENT." }
@@ -113,7 +122,12 @@ export async function deepReasoning(prompt: string, context?: any) {
 
         // Clean potential markdown just in case
         const raw = response.choices[0]?.message?.content || "";
-        return raw.replace(/```latex/g, "").replace(/```/g, "").trim();
+        const content = raw.replace(/```latex/g, "").replace(/```/g, "").trim();
+
+        return {
+            content,
+            usage: response.usage
+        };
 
     } catch (error) {
         console.error("The Surgeon failed:", error);

@@ -10,7 +10,7 @@ import { NextResponse, type NextRequest } from 'next/server'
  * 3. /forge, /arsenal, /radar → if NOT logged in, redirect to /login
  * 4. /api/* → pass through (API routes handle their own auth)
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
     let supabaseResponse = NextResponse.next({
         request,
     })
