@@ -48,8 +48,25 @@ export function BrutalistSidebar() {
                 {/* Header */}
                 <div className="p-6 border-b-2 border-black flex items-center justify-between">
                     <div className="flex flex-col">
-                        <Link href="/" className="text-2xl font-black tracking-[0.3em] uppercase leading-none hover:opacity-80 transition-opacity">
-                            A T R E U S
+                        <Link href="/" className="flex items-center gap-3 group">
+                            {/* The Arrowhead SVG */}
+                            <svg
+                                width="32"
+                                height="32"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="black"
+                                strokeWidth="3"
+                                strokeLinecap="square"
+                                strokeLinejoin="miter"
+                                className="transition-transform group-hover:-translate-y-1"
+                            >
+                                <path d="M4 16L12 6L20 16" />
+                            </svg>
+                            {/* The Text */}
+                            <span className="font-black tracking-[0.3em] uppercase text-xl text-black">
+                                TREUS
+                            </span>
                         </Link>
                         <span className="text-[10px] font-mono opacity-50 uppercase mt-1">Autonomous Profile v1.0</span>
                     </div>
