@@ -38,7 +38,7 @@ async function runDiagnostics() {
             console.error("❌ FAIL: Skills NOT Normalized - " + JSON.stringify(stack));
         }
 
-        if (result.salary_min === 100000 && result.salary_max === 150000) {
+        if (result.data?.salary_min === 100000 && result.data?.salary_max === 150000) {
             console.log("✅ PASS: Salary Parsed");
         } else {
             console.error("❌ FAIL: Salary Mismatch");
