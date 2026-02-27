@@ -24,11 +24,9 @@ export interface StandardizedJob {
     remote_status: 'remote' | 'onsite' | 'hybrid' | 'unknown';
 }
 
-export const GLM_MODELS = ["glm-4.5", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-4-plus", "glm-4"];
-
 const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
-async function callZhipuAI(systemPrompt: string, userPrompt: string, model: string = 'glm-4-plus') {
+async function callZhipuAI(systemPrompt: string, userPrompt: string, model: string = 'glm-4.5') {
     const apiKey = process.env.ZHIPU_API_KEY;
     if (!apiKey) throw new Error('ZHIPU_API_KEY not configured');
 
@@ -49,29 +47,6 @@ async function callZhipuAI(systemPrompt: string, userPrompt: string, model: stri
             top_p: 0.7
         })
     });
-
-    if (!response.ok && response.status === 400 && model === 'glm-4-plus') {
-        console.warn("[AI ERROR] Model rejected. Fallback initiated.");
-        const fallbackModel = "glm-4";
-        console.log("[AI] Requesting model ID:", fallbackModel);
-
-        response = await fetch(ZHIPU_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: fallbackModel,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt }
-                ],
-                temperature: 0.2,
-                top_p: 0.7
-            })
-        });
-    }
 
     if (!response.ok) {
         const errorText = await response.text();
@@ -172,7 +147,7 @@ export const orchestrator = {
         // Truncate rawText if too long to avoid token limits? GLM-4 is generous but good practice.
         const previewText = rawText.substring(0, 10000);
 
-        const rawResponse = await callZhipuAI(systemPrompt, previewText, 'glm-4-plus');
+        const rawResponse = await callZhipuAI(systemPrompt, previewText, 'glm-4.5');
         const jsonString = rawResponse.replace(/```json\n?|\n?```/g, '').trim();
 
         try {

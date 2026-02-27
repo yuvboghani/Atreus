@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import { GLM_MODELS } from "./orchestrator";
 
 // Initialize OpenAI client for ZhipuAI
 const openai = new OpenAI({
@@ -12,17 +11,15 @@ const openai = new OpenAI({
  * Use Case: High-speed, low-cost tasks (extraction, classification).
  * Cost Target: Minimal.
  */
-export async function extractJson(text: string, preferredModel?: string): Promise<{ data: any, usage: any }> {
-    let modelsToTry = preferredModel ? [preferredModel, ...GLM_MODELS.filter(m => m !== preferredModel)] : GLM_MODELS;
-
-    for (const currentModel of modelsToTry) {
-        try {
-            const response = await openai.chat.completions.create({
-                model: currentModel,
-                messages: [
-                    {
-                        role: "system",
-                        content: `You are a strict JSON parser. You extract job details from raw text.
+export async function extractJson(text: string): Promise<{ data: any, usage: any }> {
+    const model = "glm-4.5";
+    try {
+        const response = await openai.chat.completions.create({
+            model,
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a strict JSON parser. You extract job details from raw text.
           Return ONLY valid JSON with this schema:
           {
             "title": "Job Title",
@@ -34,38 +31,31 @@ export async function extractJson(text: string, preferredModel?: string): Promis
           }
           If a field is missing, use null. Do not include markdown code blocks.
           CRITICAL: Normalize 'tech_stack' to industry standards (e.g., 'React.js' -> 'React', 'NodeJS' -> 'Node', 'PostgreSQL' -> 'Postgres'). Return only the normalized array.`
-                    },
-                    {
-                        role: "user",
-                        content: text
-                    }
-                ],
-                temperature: 0.1, // Deterministic
-                max_tokens: 1024,
-                top_p: 0.7
-            });
+                },
+                {
+                    role: "user",
+                    content: text
+                }
+            ],
+            temperature: 0.1, // Deterministic
+            max_tokens: 1024,
+            top_p: 0.7
+        });
 
-            const content = response.choices[0]?.message?.content || "{}";
-            // Strip markdown if present
-            const cleanContent = content.replace(/```json/g, "").replace(/```/g, "").trim();
+        const content = response.choices[0]?.message?.content || "{}";
+        // Strip markdown if present
+        const cleanContent = content.replace(/```json/g, "").replace(/```/g, "").trim();
 
-            console.log(`[AI] Intelligence Locked: Using ${currentModel}`);
+        console.log(`[AI] Intelligence Locked: Using ${model}`);
 
-            return {
-                data: JSON.parse(cleanContent),
-                usage: response.usage
-            };
-        } catch (error: any) {
-            if (error.status === 400 || (error.message && error.message.includes('400'))) {
-                console.warn(`[AI] Model ${currentModel} unavailable. Falling back...`);
-                continue;
-            }
-            console.error("The Parser failed:", error);
-            throw new Error("Failed to extract JSON from job description.");
-        }
+        return {
+            data: JSON.parse(cleanContent),
+            usage: response.usage
+        };
+    } catch (error: any) {
+        console.error(`[AI ERROR] The Parser failed on model ${model}:`, error);
+        throw new Error("Failed to extract JSON from job description.");
     }
-
-    throw new Error("[RADAR] TOTAL_INTELLIGENCE_FAILURE: No authorized GLM models found.");
 }
 
 /**
@@ -73,7 +63,7 @@ export async function extractJson(text: string, preferredModel?: string): Promis
  * Use Case: Balanced reasoning (Assistants, Drafting).
  * Cost Target: Moderate.
  */
-export async function chatAgent(history: { role: "system" | "user" | "assistant", content: string }[], model: string = "glm-4-plus"): Promise<{ content: string, usage: any }> {
+export async function chatAgent(history: { role: "system" | "user" | "assistant", content: string }[], model: string = "glm-4.5"): Promise<{ content: string, usage: any }> {
     try {
         const response = await openai.chat.completions.create({
             model, // Forcing Plus for reliability
@@ -99,7 +89,7 @@ export async function chatAgent(history: { role: "system" | "user" | "assistant"
  * Use Case: Deep reasoning, complex coding, critical analysis.
  * Cost Target: High (Use sparingly).
  */
-export async function deepReasoning(prompt: string, context?: any, model: string = "glm-4-plus") {
+export async function deepReasoning(prompt: string, context?: any, model: string = "glm-4.5") {
     try {
         const jobContext = context ? `JOB_CONTEXT: Role: ${context.title} @ ${context.company}. Key Reqs: ${JSON.stringify(context.tech_stack)}` : "";
 

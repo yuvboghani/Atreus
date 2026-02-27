@@ -31,7 +31,7 @@ export async function GET(req: Request) {
             return NextResponse.json({ message: "No jobs found", imported: 0 });
         }
 
-        const topJobs = jobs.slice(0, 3);
+        const topJobs = jobs.slice(0, 2);
         console.log(`[RADAR] Found ${jobs.length} total jobs. Processing top ${topJobs.length}.`);
 
         // 3. Batch AI Processing
