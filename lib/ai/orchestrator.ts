@@ -26,11 +26,12 @@ export interface StandardizedJob {
 
 const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
-async function callZhipuAI(systemPrompt: string, userPrompt: string, model: 'glm-4-plus' = 'glm-4-plus') {
+async function callZhipuAI(systemPrompt: string, userPrompt: string, model: string = 'glm-4-plus') {
     const apiKey = process.env.ZHIPU_API_KEY;
     if (!apiKey) throw new Error('ZHIPU_API_KEY not configured');
 
-    const response = await fetch(ZHIPU_API_URL, {
+    console.log("[AI] Requesting model ID:", model);
+    let response = await fetch(ZHIPU_API_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -46,6 +47,29 @@ async function callZhipuAI(systemPrompt: string, userPrompt: string, model: 'glm
             top_p: 0.7
         })
     });
+
+    if (!response.ok && response.status === 400 && model === 'glm-4-plus') {
+        console.warn("[AI ERROR] Model rejected. Fallback initiated.");
+        const fallbackModel = "glm-4";
+        console.log("[AI] Requesting model ID:", fallbackModel);
+
+        response = await fetch(ZHIPU_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: fallbackModel,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.2,
+                top_p: 0.7
+            })
+        });
+    }
 
     if (!response.ok) {
         const errorText = await response.text();

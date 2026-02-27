@@ -44,8 +44,18 @@ export async function GET(req: Request) {
         `;
 
         console.log("[AI] Normalizing batch...");
-        // Use the glm-4-plus model for standardized extraction
-        const aiResponse = await extractJson(batchPrompt, "glm-4-plus");
+        let modelId = "glm-4-plus";
+        console.log("[AI] Requesting model ID:", modelId);
+
+        let aiResponse;
+        try {
+            aiResponse = await extractJson(batchPrompt, modelId);
+        } catch (error) {
+            console.warn(`[AI ERROR] Initial extraction failed with ${modelId}. Attempting fallback...`);
+            modelId = "glm-4";
+            console.log("[AI] Requesting model ID:", modelId);
+            aiResponse = await extractJson(batchPrompt, modelId);
+        }
 
         let normalizedJobs = [];
 
