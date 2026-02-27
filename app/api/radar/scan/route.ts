@@ -8,7 +8,7 @@ export const maxDuration = 10; // Enforce Hobby limit awareness
 
 export async function GET(req: Request) {
     try {
-        console.log("[INIT] X-Ray Route Triggered.");
+        console.log("[RADAR] Network Sweep Initialized.");
 
         // 1. Protocol Checks
         if (!process.env.SERPER_API_KEY) {
@@ -18,21 +18,21 @@ export async function GET(req: Request) {
 
         const authHeader = req.headers.get('authorization');
         if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-            console.error("[ERROR] Unauthorized X-Ray access attempt.");
+            console.error("[RADAR] Unauthorized scanner access attempt.");
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         // 2. Fetch Jobs (Limit to top 5 to save time)
-        console.log("[X-RAY] Initiating Google SERP scan...");
+        console.log("[RADAR] Initiating Google SERP scan...");
         const jobs = await fetchGoogleJobs("Software Engineer OR Data Scientist");
 
         if (!jobs || jobs.length === 0) {
-            console.log("[X-RAY] No jobs found in this sweep.");
+            console.log("[RADAR] No jobs found in this sweep.");
             return NextResponse.json({ message: "No jobs found", imported: 0 });
         }
 
         const topJobs = jobs.slice(0, 5);
-        console.log(`[X-RAY] Found ${jobs.length} total jobs. Processing top ${topJobs.length}.`);
+        console.log(`[RADAR] Found ${jobs.length} total jobs. Processing top ${topJobs.length}.`);
 
         // 3. Batch AI Processing
         const batchPrompt = `
@@ -86,7 +86,7 @@ export async function GET(req: Request) {
             company: job.company,
             location: job.location || "Remote",
             absolute_url: job.url,
-            source: 'google_xray',
+            source: 'radar_scan',
             status: 'draft',
             metadata: {
                 tech_stack: job.tech_stack || [],
@@ -105,12 +105,12 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        console.log(`[DB] Upserted ${data?.length || 0} rows.`);
+        console.log(`[RADAR] Target Found: ${data?.length || 0} rows upserted.`);
 
         return NextResponse.json({ success: true, imported: data?.length || 0 });
 
     } catch (error: any) {
-        console.error("[FATAL ERROR] X-Ray Engine crashed:", error);
+        console.error("[RADAR] SCAN_FAILED: Engine crashed:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

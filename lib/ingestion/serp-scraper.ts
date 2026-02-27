@@ -19,7 +19,7 @@ export interface SerpJob {
 export async function fetchGoogleJobs(query: string = "Software Engineer"): Promise<SerpJob[]> {
     const apiKey = process.env.SERPER_API_KEY;
     if (!apiKey) {
-        console.error("SERPER_API_KEY is missing. Skipping SERP scrape.");
+        console.error("[RADAR] SCAN_FAILED: MISSING_INTEL_KEY");
         return [];
     }
 

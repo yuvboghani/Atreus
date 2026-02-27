@@ -1,7 +1,7 @@
 {
     "crons": [
         {
-            "path": "/api/scrape",
+            "path": "/api/radar/scan",
             "schedule": "0 0 * * *"
         },
         {
