@@ -81,7 +81,7 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: "Database Connection Failed" }, { status: 500 });
         }
 
-        const upsertData = normalizedJobs.map(job => ({
+        const upsertData = normalizedJobs.map((job: any) => ({
             title: job.title,
             company: job.company,
             location: job.location || "Remote",
