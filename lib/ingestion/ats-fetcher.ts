@@ -1,3 +1,5 @@
+import { fetchGoogleJobs } from './serp-scraper';
+
 export interface AtsJob {
     id: string;
     title: string;
@@ -7,7 +9,7 @@ export interface AtsJob {
     };
     metadata?: any;
     company: string;
-    source: 'greenhouse' | 'lever';
+    source: 'greenhouse' | 'lever' | 'google_serp';
 }
 
 const COMMON_HEADERS = {
@@ -51,13 +53,34 @@ export async function fetchLever(company: string): Promise<AtsJob[]> {
         });
 
         if (!response.ok) {
-            console.warn(`Lever fetch failed for ${company}: ${response.status}`);
-            return [];
+            console.warn(`Lever fetch failed for ${company} with status ${response.status}. Attempting SERP fallback...`);
+            const fallbackJobs = await fetchGoogleJobs(`site:jobs.lever.co/${company}`);
+            return fallbackJobs.map(job => ({
+                id: job.link.split('/').pop() || String(Math.random()),
+                title: job.title,
+                absolute_url: job.link,
+                location: { name: 'Remote' },
+                metadata: { snippet: job.snippet },
+                company: company,
+                source: 'google_serp'
+            }));
         }
 
         const data = await response.json();
 
-        if (!Array.isArray(data)) return [];
+        if (!Array.isArray(data) || data.length === 0) {
+            console.warn(`Lever fetch returned empty for ${company}. Attempting SERP fallback...`);
+            const fallbackJobs = await fetchGoogleJobs(`site:jobs.lever.co/${company}`);
+            return fallbackJobs.map(job => ({
+                id: job.link.split('/').pop() || String(Math.random()),
+                title: job.title,
+                absolute_url: job.link,
+                location: { name: 'Remote' },
+                metadata: { snippet: job.snippet },
+                company: company,
+                source: 'google_serp'
+            }));
+        }
 
         return data.map((job: any) => ({
             id: job.id,
