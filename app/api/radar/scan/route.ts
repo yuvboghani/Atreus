@@ -44,18 +44,8 @@ export async function GET(req: Request) {
         `;
 
         console.log("[AI] Normalizing batch...");
-        let modelId = "glm-4-plus";
-        console.log("[AI] Requesting model ID:", modelId);
-
-        let aiResponse;
-        try {
-            aiResponse = await extractJson(batchPrompt, modelId);
-        } catch (error) {
-            console.warn(`[AI ERROR] Initial extraction failed with ${modelId}. Attempting fallback...`);
-            modelId = "glm-4";
-            console.log("[AI] Requesting model ID:", modelId);
-            aiResponse = await extractJson(batchPrompt, modelId);
-        }
+        console.log("[AI] Normalizing batch...");
+        const aiResponse = await extractJson(batchPrompt);
 
         let normalizedJobs = [];
 
@@ -123,6 +113,10 @@ export async function GET(req: Request) {
         return NextResponse.json({ success: true, imported: data?.length || 0 });
 
     } catch (error: any) {
+        if (error.message && error.message.includes("TOTAL_INTELLIGENCE_FAILURE")) {
+            console.error(error.message);
+            return NextResponse.json({ error: error.message }, { status: 500 });
+        }
         console.error("[RADAR] SCAN_FAILED: Engine crashed:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

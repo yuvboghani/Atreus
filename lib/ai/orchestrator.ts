@@ -24,6 +24,8 @@ export interface StandardizedJob {
     remote_status: 'remote' | 'onsite' | 'hybrid' | 'unknown';
 }
 
+export const GLM_MODELS = ["glm-4.5", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-4-plus", "glm-4"];
+
 const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
 async function callZhipuAI(systemPrompt: string, userPrompt: string, model: string = 'glm-4-plus') {

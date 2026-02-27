@@ -102,8 +102,10 @@ export default async function RadarPage() {
                     <p className="font-mono text-sm opacity-60 uppercase tracking-widest">Global Intelligence Grid // Public Frequency</p>
                 </div>
                 <div className="flex gap-4">
-                    <Button variant="outline" className="font-mono">
-                        SCAN_NETWORK
+                    <Button variant="outline" className="font-mono" asChild>
+                        <Link href="/api/radar/scan" target="_blank">
+                            SCAN_NETWORK
+                        </Link>
                     </Button>
                     <Button className="font-mono bg-black text-white hover:bg-black/80">
                         AUTO_APPLY [OFF]
