@@ -23,7 +23,7 @@ export async function POST(req: Request) {
         let extracted: any = {};
         let usage: any = null;
         try {
-            const result = await extractJson(text, 'glm-4-plus');
+            const result = await extractJson(text);
             extracted = result.data;
             usage = result.usage;
 
