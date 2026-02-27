@@ -41,6 +41,12 @@ export async function bookmarkJob(jobId: string) {
         throw new Error("Failed to bookmark job");
     }
 
+    // Flip the flag on the jobs table to protect it from the Janitor
+    await supabase
+        .from('jobs')
+        .update({ is_saved: true })
+        .eq('id', jobId);
+
     revalidatePath("/radar");
     revalidatePath("/pipeline");
     return { success: true, status: 'saved' };

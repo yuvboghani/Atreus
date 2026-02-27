@@ -1,6 +1,7 @@
 import { createServerClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
 import { calculateMatchScore } from "@/lib/scoring";
+import { purgeOldJobs } from "@/lib/ingestion/cleanup";
 
 export async function GET(req: Request) {
     try {
@@ -46,7 +47,14 @@ export async function GET(req: Request) {
             supabase.from('jobs').update({ match_score: u.match_score }).eq('id', u.id)
         ));
 
-        return NextResponse.json({ success: true, scores_updated: updates.length });
+        // 5. Run Database Janitor Cleanup
+        const purgedCount = await purgeOldJobs();
+
+        return NextResponse.json({
+            success: true,
+            scores_updated: updates.length,
+            jobs_purged: purgedCount
+        });
 
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
