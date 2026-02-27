@@ -30,7 +30,7 @@ export async function extractJson(text: string): Promise<{ data: any, usage: any
             "tech_stack": ["Skill1", "Skill2"]
           }
           If a field is missing, use null. Do not include markdown code blocks.
-          CRITICAL: Normalize 'tech_stack' to industry standards (e.g., 'React.js' -> 'React', 'NodeJS' -> 'Node', 'PostgreSQL' -> 'Postgres'). Return only the normalized array.`
+          CRITICAL: Normalize 'tech_stack' to industry standards (e.g., 'React.js' -> 'React', 'NodeJS' -> 'Node'). Return only the normalized array.`
                 },
                 {
                     role: "user",

@@ -84,7 +84,7 @@ export async function GET(req: Request) {
             title: job.title,
             company: job.company,
             location: job.location || "Remote",
-            absolute_url: job.url,
+            url: job.url,
             source: 'radar_scan',
             status: 'draft',
             metadata: {
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
 
         const { data: upsertResults, error: upsertError } = await supabase
             .from('jobs')
-            .upsert(upsertData, { onConflict: 'absolute_url' })
+            .upsert(upsertData, { onConflict: 'url' })
             .select();
 
         if (upsertError) {

@@ -10,6 +10,36 @@ export interface JobInsert {
     metadata?: any;
 }
 
+export async function checkExists(url: string, supabase?: any): Promise<boolean> {
+    const client = supabase || createServerClient();
+    if (!client) {
+        console.error("[DB ERROR] checkExists failed: Uninitialized client.");
+        return true; // Fail safe to true to avoid duplicates if DB is offline.
+    }
+
+    // 1. Check primary jobs table
+    const { data: jobMatch } = await client
+        .from('jobs')
+        .select('absolute_url')
+        .eq('absolute_url', url)
+        .limit(1)
+        .single();
+
+    if (jobMatch) return true;
+
+    // 2. Check jobs_raw queue
+    const { data: rawMatch } = await client
+        .from('jobs_raw')
+        .select('absolute_url')
+        .eq('absolute_url', url)
+        .limit(1)
+        .single();
+
+    if (rawMatch) return true;
+
+    return false;
+}
+
 export async function upsertJobs(jobs: JobInsert[]) {
     const supabase = createServerClient();
 
