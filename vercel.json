@@ -8,5 +8,6 @@
             "path": "/api/cron/score",
             "schedule": "15 * * * *"
         }
-    ]
+    ],
+    "description": "Cron setup"
 }
