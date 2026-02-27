@@ -44,8 +44,8 @@ export async function GET(req: Request) {
         `;
 
         console.log("[AI] Normalizing batch...");
-        // Use the faster glm-4-flash model if supported by selector, otherwise fallback to default
-        const aiResponse = await extractJson(batchPrompt, "glm-4-flash");
+        // Use the glm-4-plus model for standardized extraction
+        const aiResponse = await extractJson(batchPrompt, "glm-4-plus");
 
         let normalizedJobs = [];
 

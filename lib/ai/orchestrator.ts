@@ -26,7 +26,7 @@ export interface StandardizedJob {
 
 const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
-async function callZhipuAI(systemPrompt: string, userPrompt: string, model: 'glm-4-plus' | 'glm-4-flash' = 'glm-4-plus') {
+async function callZhipuAI(systemPrompt: string, userPrompt: string, model: 'glm-4-plus' = 'glm-4-plus') {
     const apiKey = process.env.ZHIPU_API_KEY;
     if (!apiKey) throw new Error('ZHIPU_API_KEY not configured');
 
@@ -49,6 +49,13 @@ async function callZhipuAI(systemPrompt: string, userPrompt: string, model: 'glm
 
     if (!response.ok) {
         const errorText = await response.text();
+        let requestID = "UNKNOWN";
+        try {
+            const errJson = JSON.parse(errorText);
+            requestID = errJson.error?.request_id || errJson.request_id || "UNKNOWN";
+        } catch (e) { }
+        console.error(`[AI ERROR] ZhipuAI failed with status ${response.status}. requestID: ${requestID}`);
+        console.error(`[AI ERROR DETAILS]: ${errorText}`);
         throw new Error(`ZhipuAI API Error: ${errorText}`);
     }
 
@@ -139,7 +146,7 @@ export const orchestrator = {
         // Truncate rawText if too long to avoid token limits? GLM-4 is generous but good practice.
         const previewText = rawText.substring(0, 10000);
 
-        const rawResponse = await callZhipuAI(systemPrompt, previewText, 'glm-4-flash'); // Using Flash for speed/cost as per prompt (or Plus? Prompt said Flash for extraction in step 2)
+        const rawResponse = await callZhipuAI(systemPrompt, previewText, 'glm-4-plus');
         const jsonString = rawResponse.replace(/```json\n?|\n?```/g, '').trim();
 
         try {

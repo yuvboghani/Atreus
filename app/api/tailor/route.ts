@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
 - Skills Bank: ${skills_bank_text || 'Not provided'}`
 
         const tailorResponse = await glm.chat.completions.create({
-            model: 'glm-4.5',
+            model: 'glm-4-plus',
             messages: [
                 { role: 'system', content: DENSE_COMPACT_SYSTEM_PROMPT },
                 { role: 'user', content: userContent },
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
         // --- Step 2: Keyword analysis ---
         const keywordResponse = await glm.chat.completions.create({
-            model: 'glm-4.5',
+            model: 'glm-4-plus',
             messages: [
                 { role: 'system', content: KEYWORD_ANALYSIS_PROMPT },
                 {

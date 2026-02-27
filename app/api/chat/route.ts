@@ -108,7 +108,7 @@ Your Goal: Answer the user's questions based on this context. Be concise and hel
         // 5. Call AI
         const glm = createGLMClient()
         const completion = await glm.chat.completions.create({
-            model: 'glm-4.5',
+            model: 'glm-4-plus',
             messages: messages,
             temperature: 0.7,
         })

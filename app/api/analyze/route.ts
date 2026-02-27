@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
         const userContent = `Resume:\n${resume.content_tex}\n\nJob:\n${job.raw_description}`
 
         const completion = await glm.chat.completions.create({
-            model: 'glm-4.5',
+            model: 'glm-4-plus',
             messages: [
                 { role: 'system', content: GAP_ANALYSIS_SYSTEM_PROMPT },
                 { role: 'user', content: userContent },
