@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { fetchGoogleJobs } from '@/lib/ingestion/serp-scraper';
-import { extractJson } from '@/lib/ai/selector';
 import { createServerClient } from '@/utils/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -31,93 +30,36 @@ export async function GET(req: Request) {
             return NextResponse.json({ message: "No jobs found", imported: 0 });
         }
 
-        const topJobs = jobs.slice(0, 2);
-        console.log(`[RADAR] Found ${jobs.length} total jobs. Processing top ${topJobs.length}.`);
-
-        // 3. Batch AI Processing
-        const batchPrompt = `
-        You are a job data extraction engine. I will provide a list of search results. Return a JSON array of objects with these keys: title, company, url, location, salary_min, salary_max, tech_stack. 
-        CRITICAL: Return ONLY the raw JSON array. Do not include markdown code blocks, explanations, or 'json' headers. If you cannot find a value, use null.
-        
-        RAW INPUT:
-        ${JSON.stringify(topJobs, null, 2)}
-        `;
-
-        console.log("[AI] Normalizing batch...");
-        console.log("[AI] Normalizing batch...");
-        const aiResponse = await extractJson(batchPrompt);
-
-        let normalizedJobs = [];
-
-        // Step 2: Cleanup Regex already handled inside extractJson (lib/ai/selector.ts), but we add best-effort parsing here too.
-        // However, extractJson returns a parsed object via JSON.parse().
-        // If the AI failed to return valid JSON, extractJson throws or returns empty.
-        // Assuming extractJson returned the parsed data successfully:
-        if (Array.isArray(aiResponse.data)) {
-            normalizedJobs = aiResponse.data;
-        } else if (aiResponse.data && Array.isArray(aiResponse.data.jobs)) {
-            normalizedJobs = aiResponse.data.jobs;
-        } else if (typeof aiResponse.data === 'string') {
-            // Fallback cleanup if the parser didn't catch the stringified array
-            try {
-                const sanitizedResponse = aiResponse.data.replace(/```json|```/g, '').trim();
-                normalizedJobs = JSON.parse(sanitizedResponse);
-            } catch (e) {
-                console.error("[AI ERROR] Failed to parse sanitized string", e);
-            }
-        } else {
-            console.error("[AI ERROR] Unexpected JSON format returned:", aiResponse.data);
-            // Attempt best-effort recovery if it's a single object
-            if (aiResponse.data && aiResponse.data.title) {
-                normalizedJobs = [aiResponse.data];
-            } else {
-                return NextResponse.json({ error: 'AI Normalization failed to produce an array.' }, { status: 500 });
-            }
-        }
-
-        console.log(`[AI] Successfully normalized ${normalizedJobs.length} jobs.`);
-
-        // 4. Database Upsert
+        // 3. Database Upsert to jobs_raw queue (No AI)
         const supabase = await createServerClient();
         if (!supabase) {
             console.error("[DB ERROR] Database Connection Failed.");
             return NextResponse.json({ error: "Database Connection Failed" }, { status: 500 });
         }
 
-        const upsertData = normalizedJobs.map((job: any) => ({
+        const rawUpsertData = jobs.map((job: any) => ({
             title: job.title,
             company: job.company,
-            location: job.location || "Remote",
             absolute_url: job.url,
-            source: 'radar_scan',
-            status: 'draft',
-            metadata: {
-                tech_stack: job.tech_stack || [],
-                salary_min: job.salary_min,
-                salary_max: job.salary_max
-            }
+            snippet: job.snippet,
+            is_processed: false
         }));
 
         const { data, error } = await supabase
-            .from('jobs')
-            .upsert(upsertData, { onConflict: 'absolute_url' })
+            .from('jobs_raw')
+            .upsert(rawUpsertData, { onConflict: 'absolute_url' })
             .select();
 
         if (error) {
-            console.error("[DB ERROR] Upsert failed:", error);
+            console.error("[DB ERROR] Scout Queue Upsert failed:", error);
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        console.log(`[RADAR] Target Found: ${data?.length || 0} rows upserted.`);
-
-        return NextResponse.json({ success: true, imported: data?.length || 0 });
+        console.log(`[RADAR] Scout Sweep Complete: ${data?.length || 0} raw jobs queued for Architect.`);
+        return NextResponse.json({ success: true, queued: data?.length || 0 });
 
     } catch (error: any) {
-        if (error.message && error.message.includes("TOTAL_INTELLIGENCE_FAILURE")) {
-            console.error(error.message);
-            return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-        console.error("[RADAR] SCAN_FAILED: Engine crashed:", error);
+        console.error("[RADAR] SCOUT_FAILED: Engine crashed:", error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
