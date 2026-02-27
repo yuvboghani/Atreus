@@ -12,7 +12,7 @@ const openai = new OpenAI({
  * Cost Target: Minimal.
  */
 export async function extractJson(text: string): Promise<{ data: any, usage: any }> {
-    const model = "glm-4.5";
+    const model = "glm-4.5-flash";
     try {
         const response = await openai.chat.completions.create({
             model,
