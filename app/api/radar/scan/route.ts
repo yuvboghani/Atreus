@@ -31,23 +31,13 @@ export async function GET(req: Request) {
             return NextResponse.json({ message: "No jobs found", imported: 0 });
         }
 
-        const topJobs = jobs.slice(0, 5);
+        const topJobs = jobs.slice(0, 3);
         console.log(`[RADAR] Found ${jobs.length} total jobs. Processing top ${topJobs.length}.`);
 
         // 3. Batch AI Processing
         const batchPrompt = `
-        Normalize the following list of raw job search results into a clean JSON array.
-        Each object in the array MUST have this exact schema:
-        {
-            "title": "Normalized Job Title (e.g., Software Engineer)",
-            "company": "Company Name",
-            "url": "Application URL",
-            "location": "City, State or Remote",
-            "salary_min": number or null,
-            "salary_max": number or null,
-            "tech_stack": ["Skill1", "Skill2"]
-        }
-        Do NOT wrap the array in an object. Return ONLY the JSON [ ... ].
+        You are a job data extraction engine. I will provide a list of search results. Return a JSON array of objects with these keys: title, company, url, location, salary_min, salary_max, tech_stack. 
+        CRITICAL: Return ONLY the raw JSON array. Do not include markdown code blocks, explanations, or 'json' headers. If you cannot find a value, use null.
         
         RAW INPUT:
         ${JSON.stringify(topJobs, null, 2)}
@@ -58,14 +48,27 @@ export async function GET(req: Request) {
         const aiResponse = await extractJson(batchPrompt, "glm-4-flash");
 
         let normalizedJobs = [];
+
+        // Step 2: Cleanup Regex already handled inside extractJson (lib/ai/selector.ts), but we add best-effort parsing here too.
+        // However, extractJson returns a parsed object via JSON.parse().
+        // If the AI failed to return valid JSON, extractJson throws or returns empty.
+        // Assuming extractJson returned the parsed data successfully:
         if (Array.isArray(aiResponse.data)) {
             normalizedJobs = aiResponse.data;
         } else if (aiResponse.data && Array.isArray(aiResponse.data.jobs)) {
             normalizedJobs = aiResponse.data.jobs;
+        } else if (typeof aiResponse.data === 'string') {
+            // Fallback cleanup if the parser didn't catch the stringified array
+            try {
+                const sanitizedResponse = aiResponse.data.replace(/```json|```/g, '').trim();
+                normalizedJobs = JSON.parse(sanitizedResponse);
+            } catch (e) {
+                console.error("[AI ERROR] Failed to parse sanitized string", e);
+            }
         } else {
             console.error("[AI ERROR] Unexpected JSON format returned:", aiResponse.data);
             // Attempt best-effort recovery if it's a single object
-            if (aiResponse.data.title) {
+            if (aiResponse.data && aiResponse.data.title) {
                 normalizedJobs = [aiResponse.data];
             } else {
                 return NextResponse.json({ error: 'AI Normalization failed to produce an array.' }, { status: 500 });
