@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@/utils/supabase/server';
 import { checkExists } from '@/lib/ingestion/db-ops';
+import { extractStrongContext } from '@/lib/ingestion/parser';
 
 export async function POST(req: Request) {
     try {
@@ -49,7 +50,8 @@ export async function POST(req: Request) {
                     absolute_url: job.url,
                     snippet: job.snippet || "External Webhook Data",
                     source_tier: 'Tier 3',
-                    is_processed: false
+                    is_processed: false,
+                    regex_data: extractStrongContext(job.snippet || "External Webhook Data", job.url)
                 });
             }
         }

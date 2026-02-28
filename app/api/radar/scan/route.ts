@@ -4,6 +4,8 @@ import { fetchGoogleJobs } from '@/lib/ingestion/serp-scraper';
 import { fetchGreenhouse, fetchLever } from '@/lib/ingestion/ats-fetcher';
 import { createServerClient } from '@/utils/supabase/server';
 import { checkExists } from '@/lib/ingestion/db-ops';
+import { shouldSkipJob } from '@/lib/ingestion/filters';
+import { extractStrongContext } from '@/lib/ingestion/parser';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 10; // Enforce Hobby limit awareness
@@ -57,6 +59,10 @@ export async function GET(req: Request) {
             return NextResponse.json({ message: "No jobs found", imported: 0 });
         }
 
+        console.log("[RADAR] Engaging High-Speed Firewall...");
+        const filteredJobs = allJobs.filter(job => !shouldSkipJob(job.title, job.snippet));
+        console.log(`[RADAR] Firewall dropped ${allJobs.length - filteredJobs.length} senior/lead roles.`);
+
         // 3. The Token Sentry: Deduplicate the leads
         const supabase = await createServerClient();
         if (!supabase) {
@@ -70,8 +76,8 @@ export async function GET(req: Request) {
 
         // Execute in parallel batches to prevent 10s timeout
         const CHUNK_SIZE = 50;
-        for (let i = 0; i < allJobs.length; i += CHUNK_SIZE) {
-            const chunk = allJobs.slice(i, i + CHUNK_SIZE);
+        for (let i = 0; i < filteredJobs.length; i += CHUNK_SIZE) {
+            const chunk = filteredJobs.slice(i, i + CHUNK_SIZE);
             const existenceResults = await Promise.all(
                 chunk.map(async (job) => {
                     const exists = await checkExists((job as any).url, supabase);
@@ -96,7 +102,8 @@ export async function GET(req: Request) {
             absolute_url: job.url,
             snippet: job.snippet,
             source_tier: job.source_tier || 'Tier 2',
-            is_processed: false
+            is_processed: false,
+            regex_data: extractStrongContext(job.snippet, job.url)
         }));
 
         const { data, error } = await supabase

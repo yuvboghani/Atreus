@@ -27,8 +27,8 @@ export interface StandardizedJob {
 const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
 async function callZhipuAI(systemPrompt: string, userPrompt: string, model: string = 'glm-4.5') {
-    const apiKey = process.env.ZHIPU_API_KEY;
-    if (!apiKey) throw new Error('ZHIPU_API_KEY not configured');
+    const apiKey = process.env.ZAI_API_KEY || process.env.ZHIPU_API_KEY;
+    if (!apiKey) throw new Error('ZAI_API_KEY not configured');
 
     console.log("[AI] Requesting model ID:", model);
     let response = await fetch(ZHIPU_API_URL, {
@@ -155,6 +155,36 @@ export const orchestrator = {
         } catch (e) {
             console.warn("Failed to parse standardized job JSON");
             throw new Error("Failed to parse Standardized Job JSON");
+        }
+    },
+
+    gapFillExtract: async (jobsBatch: any[]): Promise<any> => {
+        const systemPrompt = `You are a Data Gap-Fill Engine. 
+    I will provide a JSON array of jobs. Each job has a 'snippet' and 'regex_data' (fields already extracted).
+    Return a JSON array of objects aligning to the exact inputs, containing ONLY the missing fields.
+    Schema per job: 
+    {
+       "salary_min": number | null,
+       "salary_max": number | null,
+       "yoe": string | number | null,
+       "tech_stack": ["skill1", "skill2"],
+       "location": "City, Country" | "Remote" | null
+    }
+    Rules:
+    - If a field is already in regex_data, DO NOT overwrite unless you found a better match.
+    - Zero "Interests". Strict Keyword/YoE match only. Map tech stack to Master Skill Bank.
+    - Return ONLY the raw JSON array. No markdown code blocks.`;
+
+        const userPrompt = JSON.stringify(jobsBatch, null, 2);
+
+        const rawResponse = await callZhipuAI(systemPrompt, userPrompt, 'glm-4.5-flash');
+        const jsonString = rawResponse.replace(/```json\n?|\n?```/g, '').trim();
+
+        try {
+            return { data: JSON.parse(jsonString) };
+        } catch (e) {
+            console.warn("[AI ERROR] Failed to parse Gap-Fill JSON:", e, jsonString);
+            return { data: [] };
         }
     }
 };

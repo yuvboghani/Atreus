@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { extractJson } from '@/lib/ai/selector';
+import { orchestrator } from '@/lib/ai/orchestrator';
 import { createServerClient } from '@/utils/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -41,62 +41,67 @@ export async function GET(req: Request) {
 
         console.log(`[ARCHITECT] Fetched ${rawJobs.length} raw jobs from queue for refinement.`);
 
-        // 2. AI Extraction
-        const batchPrompt = `
-        You are an elite job data extraction engine. I will provide a list of raw search results (snippets). 
-        Return a JSON array of objects with these keys: title, company, url, location, salary_min, salary_max, tech_stack. 
-        CRITICAL: Return ONLY the raw JSON array. Do not include markdown code blocks, explanations, or 'json' headers. If you cannot find a value, use null.
-        
-        RAW INPUT:
-        ${JSON.stringify(
-            rawJobs.map(job => ({ title: job.title, company: job.company, url: job.absolute_url, snippet: job.snippet })),
-            null, 2
-        )}
-        `;
+        // 2. AI Extraction and Merge
+        const batchPayload = rawJobs.map((job) => ({
+            id: job.id,
+            snippet: job.snippet,
+            regex_data: job.regex_data || {}
+        }));
 
-        console.log("[AI] Igniting intelligence layer for normalization...");
-        const aiResponse = await extractJson(batchPrompt);
+        console.log("[AI] Igniting gap-fill intelligence layer...");
+        const aiResponse = await orchestrator.gapFillExtract(batchPayload);
 
-        let normalizedJobs: any[] = [];
-
+        let aiDeltas: any[] = [];
         if (Array.isArray(aiResponse.data)) {
-            normalizedJobs = aiResponse.data;
-        } else if (aiResponse.data && Array.isArray(aiResponse.data.jobs)) {
-            normalizedJobs = aiResponse.data.jobs;
-        } else if (typeof aiResponse.data === 'string') {
-            try {
-                const sanitizedResponse = aiResponse.data.replace(/```json|```/g, '').trim();
-                normalizedJobs = JSON.parse(sanitizedResponse);
-            } catch (e) {
-                console.error("[AI ERROR] Failed to parse stringified JSON", e);
-            }
-        } else if (aiResponse.data && aiResponse.data.title) {
-            normalizedJobs = [aiResponse.data];
+            aiDeltas = aiResponse.data;
         } else {
-            console.error("[AI ERROR] Unexpected JSON format returned:", aiResponse.data);
-            return NextResponse.json({ error: 'AI Normalization failed to produce an array.' }, { status: 500 });
+            console.error("[AI ERROR] AI failed to produce an array.", aiResponse.data);
+            return NextResponse.json({ error: 'AI Gap-Fill failed.' }, { status: 500 });
         }
 
-        console.log(`[AI] Successfully extracted core data for ${normalizedJobs.length} jobs.`);
+        let regexCount = 0;
+        let aiCount = 0;
 
         // 3. Upsert to Main Jobs Database
-        const upsertData = normalizedJobs.map((job: any) => ({
-            title: job.title,
-            company: job.company,
-            location: job.location || "Remote",
-            url: job.url,
-            source: 'radar_scan',
-            status: 'draft',
-            metadata: {
-                tech_stack: job.tech_stack || [],
-                salary_min: job.salary_min,
-                salary_max: job.salary_max
-            }
-        }));
+        const upsertData = rawJobs.map((rawJob, index) => {
+            const aiDelta = aiDeltas[index] || {};
+            const regex = rawJob.regex_data || {};
+
+            const mergedTech = Array.from(new Set([...(regex.tech_stack || []), ...(aiDelta.tech_stack || [])]));
+
+            if (regex.yoe) regexCount++;
+            if (regex.salary) regexCount++;
+            if (regex.education) regexCount++;
+            if (regex.tech_stack && regex.tech_stack.length > 0) regexCount++;
+
+            if (aiDelta.location) aiCount++;
+            if (aiDelta.salary_min) aiCount++;
+            if (aiDelta.tech_stack && aiDelta.tech_stack.length > 0) aiCount++;
+            if (!regex.yoe && aiDelta.yoe) aiCount++;
+
+            return {
+                title: rawJob.title,
+                organization_id: 'c1620ab4-b7a4-4000-a540-0b82fb8fde0b',
+                company: rawJob.company,
+                raw_description: rawJob.snippet,
+                metadata: {
+                    url: rawJob.absolute_url,
+                    source: 'radar_scan',
+                    location: aiDelta.location || "Remote",
+                    tech_stack: mergedTech,
+                    salary_min: aiDelta.salary_min || null,
+                    salary_max: aiDelta.salary_max || null,
+                    yoe: regex.yoe || aiDelta.yoe || null,
+                    req_edu: regex.education || null
+                }
+            };
+        });
+
+        console.log(`[RADAR] Regex found ${regexCount}, AI filled ${aiCount}.`);
 
         const { data: upsertResults, error: upsertError } = await supabase
             .from('jobs')
-            .upsert(upsertData, { onConflict: 'url' })
+            .insert(upsertData)
             .select();
 
         if (upsertError) {
