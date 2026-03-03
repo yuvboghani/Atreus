@@ -7,40 +7,26 @@ on:
 jobs:
   run-radar-pipeline:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+      ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
     steps:
-      - name: Step 1 - Trigger The Omni-Scout (Discovery)
-        run: |
-          echo "Initiating Tier 1 and Tier 2 sweeping..."
-          curl -f -L -X GET "${{ secrets.VERCEL_PROJECT_URL }}/api/radar/scan" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Step 2 - Trigger The Architect (Refinement Loop)
-        run: |
-          echo "Draining jobs_raw queue..."
-          max_iterations=50
-          iteration=0
-          
-          while [ $iteration -lt $max_iterations ]; do
-            response=$(curl -sL -w "\n%{http_code}" -X GET \
-              "${{ secrets.VERCEL_PROJECT_URL }}/api/radar/refine" \
-              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
-            
-            body=$(echo "$response" | head -n -1)
-            status=$(echo "$response" | tail -n 1)
-            
-            echo "Status: $status | Response: $body"
-            
-            refined=$(echo "$body" | grep -oE '"refined":[0-9]+' | cut -d':' -f2)
-            
-            if [[ "$refined" == "0" || -z "$refined" ]]; then
-              echo "Queue is empty. Sequence complete."
-              break
-            fi
-            
-            echo "Waiting for next job..."
-            sleep 5
-            iteration=$((iteration + 1))
-          done
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Step 1 - The Omni-Scout (Discovery)
+        run: npx tsx scripts/scout.ts
+
+      - name: Step 2 - The Architect (Refinement)
+        run: npx tsx scripts/refine.ts
