@@ -1,27 +1,31 @@
 name: Omni-Channel Radar Sync
 on:
   schedule:
-    - cron: '0 */6 * * *' # Every 6 hours
-  workflow_dispatch: # Allows manual trigger from GH UI
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   run-radar-pipeline:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Step 1 - Trigger The Omni-Scout (Discovery)
         run: |
-          echo "Initiating Tier 1 and Tier 2 sweeping operations..."
-          curl -f -X GET "${{ secrets.VERCEL_PROJECT_URL }}/api/radar/scan" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || echo "Scout failed but proceeding..."
-          
+          echo "Initiating Tier 1 and Tier 2 sweeping..."
+          curl -f -L -X GET "${{ secrets.VERCEL_PROJECT_URL }}/api/radar/scan" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
       - name: Step 2 - Trigger The Architect (Refinement Loop)
         run: |
-          echo "Draining jobs_raw queue via The Architect..."
+          echo "Draining jobs_raw queue..."
           max_iterations=50
           iteration=0
           
           while [ $iteration -lt $max_iterations ]; do
-            response=$(curl -s -w "\n%{http_code}" -X GET "${{ secrets.VERCEL_PROJECT_URL }}/api/radar/refine" \
+            response=$(curl -sL -w "\n%{http_code}" -X GET \
+              "${{ secrets.VERCEL_PROJECT_URL }}/api/radar/refine" \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
             
             body=$(echo "$response" | head -n -1)
@@ -29,18 +33,14 @@ jobs:
             
             echo "Status: $status | Response: $body"
             
-            refined=$(echo "$body" | grep -o '"refined":[0-9]*' | cut -d':' -f2)
+            refined=$(echo "$body" | grep -oE '"refined":[0-9]+' | cut -d':' -f2)
             
             if [[ "$refined" == "0" || -z "$refined" ]]; then
-              echo "Queue is empty. Architect sequence complete."
+              echo "Queue is empty. Sequence complete."
               break
             fi
             
-            echo "Sleeping 5 seconds to prevent rate limiting..."
+            echo "Waiting for next job..."
             sleep 5
             iteration=$((iteration + 1))
           done
-          
-          if [ $iteration -ge $max_iterations ]; do
-            echo "WARNING: Architect loop maxed out. Queue may still have items."
-          fi
