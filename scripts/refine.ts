@@ -5,8 +5,12 @@ dotenv.config({ path: '.env' });
 import { createClient } from '@supabase/supabase-js';
 import { orchestrator } from '../lib/ai/orchestrator';
 import { calculateMatchScore } from '../lib/scoring';
+import { scrapeJobPage } from '../lib/utils/scraper';
 
-// Direct Supabase client (no Next.js dependency)
+const BATCH_SIZE = 20;
+const INTER_JOB_DELAY = 3000;   // 3s between jobs
+const INTER_BATCH_DELAY = 5000; // 5s between batches
+
 function getSupabase() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,42 +25,70 @@ function getSupabase() {
     });
 }
 
-async function refineOne(rawJob: any, supabase: any, userProfile: any) {
-    console.log(`[REFINE] Processing: ${rawJob.title} @ ${rawJob.company}`);
+async function refineOne(
+    rawJob: any,
+    supabase: any,
+    userProfile: any
+) {
+    console.log(
+        `[REFINE] Processing: ${rawJob.title} @ ${rawJob.company}`
+    );
 
-    // 1. AI Gap-Fill
-    const batchPayload = [{
-        id: rawJob.id,
-        snippet: rawJob.snippet,
-        regex_data: rawJob.regex_data || {}
-    }];
-
-    const aiResponse = await orchestrator
-        .gapFillExtract(batchPayload);
-    const aiDelta = aiResponse.data?.[0] || {};
     const regex = rawJob.regex_data || {};
+    let aiDelta: any = {};
+    let fullMarkdown: string | null = null;
+    let contentQuality = 'partial';
 
-    // 2. Merge
+    // 1. Attempt Deep Scrape
+    if (rawJob.absolute_url) {
+        fullMarkdown = await scrapeJobPage(
+            rawJob.absolute_url
+        );
+    }
+
+    // 2. AI Analysis (deep or fallback)
+    if (fullMarkdown) {
+        console.log("[REFINE] Deep extraction mode.");
+        const deepResult = await orchestrator
+            .deepExtract(fullMarkdown, regex);
+        aiDelta = deepResult.data || {};
+        contentQuality = 'full';
+    } else {
+        console.log("[REFINE] Snippet fallback mode.");
+        const batchPayload = [{
+            id: rawJob.id,
+            snippet: rawJob.snippet,
+            regex_data: regex
+        }];
+        const gapResult = await orchestrator
+            .gapFillExtract(batchPayload);
+        aiDelta = gapResult.data?.[0] || {};
+    }
+
+    // 3. Merge tech stacks
     const mergedTech = Array.from(new Set([
         ...(regex.tech_stack || []),
         ...(aiDelta.tech_stack || [])
     ]));
 
-    // 3. Score
-    const yoeNum = parseInt(regex.yoe || '0') || 0;
+    // 4. Score
+    const yoeNum = parseInt(regex.yoe || '0')
+        || aiDelta.yoe || 0;
     const jobParsed = {
         tech_stack: mergedTech,
-        min_yoe: yoeNum || aiDelta.yoe || 0,
+        min_yoe: yoeNum,
         req_edu: regex.education === 'MS' ? 3
             : regex.education === 'PhD' ? 4 : 2,
         is_entry_level: yoeNum <= 2
-            || (aiDelta.yoe && aiDelta.yoe <= 2)
     };
     const match_score = calculateMatchScore(
         jobParsed, userProfile
     );
 
-    // 4. Insert to jobs
+    // 5. Insert to jobs
+    const description = fullMarkdown
+        || rawJob.snippet || '';
+
     const { data, error } = await supabase
         .from('jobs')
         .insert({
@@ -64,39 +96,50 @@ async function refineOne(rawJob: any, supabase: any, userProfile: any) {
             organization_id:
                 'c1620ab4-b7a4-4000-a540-0b82fb8fde0b',
             company: rawJob.company,
-            raw_description: rawJob.snippet,
+            raw_description: description,
             match_score,
             metadata: {
                 url: rawJob.absolute_url,
                 source: 'radar_scan',
+                content_quality: contentQuality,
                 location: aiDelta.location || "Remote",
+                remote_status: aiDelta.remote_status
+                    || "unknown",
                 tech_stack: mergedTech,
                 salary_min: aiDelta.salary_min || null,
                 salary_max: aiDelta.salary_max || null,
                 yoe: regex.yoe || aiDelta.yoe || null,
-                req_edu: regex.education || null
+                req_edu: regex.education || null,
+                key_priorities: aiDelta.key_priorities
+                    || null
             }
         })
         .select()
         .single();
 
     if (error) {
-        console.error(`[REFINE] Insert failed for ${rawJob.title}:`, error.message);
+        console.error(
+            `[REFINE] Insert failed for ${rawJob.title}:`,
+            error.message
+        );
         return null;
     }
 
-    // 5. Purge from queue
+    // 6. Purge from queue
     await supabase
         .from('jobs_raw')
         .delete()
         .eq('id', rawJob.id);
 
-    console.log(`[REFINE] Done: ${data.title} (${match_score}%)`);
+    console.log(
+        `[REFINE] ✅ ${data.title} | ${match_score}% | ${contentQuality}`
+    );
     return data;
 }
 
 async function main() {
     console.log("[REFINE] Native Runner Initialized.");
+    console.log("[REFINE] Deep Content Extraction: ON");
 
     const supabase = getSupabase();
 
@@ -131,32 +174,67 @@ async function main() {
     }
 
     console.log(
-        `[REFINE] ${rawJobs.length} jobs to process.`
+        `[REFINE] ${rawJobs.length} jobs to process `
+        + `(batches of ${BATCH_SIZE}).`
     );
 
     let success = 0;
     let failed = 0;
+    let fullContent = 0;
 
-    for (const job of rawJobs) {
-        try {
-            const result = await refineOne(
-                job, supabase, userProfile
+    // Process in batches
+    for (let i = 0; i < rawJobs.length; i += BATCH_SIZE) {
+        const batch = rawJobs.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(
+            rawJobs.length / BATCH_SIZE
+        );
+
+        console.log(
+            `\n[REFINE] Batch ${batchNum}/${totalBatches}`
+            + ` (${batch.length} jobs)`
+        );
+
+        for (const job of batch) {
+            try {
+                const result = await refineOne(
+                    job, supabase, userProfile
+                );
+                if (result) {
+                    success++;
+                    if (result.metadata?.content_quality
+                        === 'full') fullContent++;
+                } else {
+                    failed++;
+                }
+            } catch (err: any) {
+                console.error(
+                    `[REFINE] Error on ${job.title}:`,
+                    err.message
+                );
+                failed++;
+            }
+            // 3s delay between jobs
+            await new Promise(
+                r => setTimeout(r, INTER_JOB_DELAY)
             );
-            if (result) success++;
-            else failed++;
-        } catch (err: any) {
-            console.error(
-                `[REFINE] Error on ${job.title}:`,
-                err.message
-            );
-            failed++;
         }
-        // Small delay to avoid API rate limits
-        await new Promise(r => setTimeout(r, 1000));
+
+        // 5s pause between batches
+        if (i + BATCH_SIZE < rawJobs.length) {
+            console.log(
+                "[REFINE] Batch cooldown (5s)..."
+            );
+            await new Promise(
+                r => setTimeout(r, INTER_BATCH_DELAY)
+            );
+        }
     }
 
     console.log(
-        `[REFINE] Complete: ${success} refined, ${failed} failed.`
+        `\n[REFINE] Complete: `
+        + `${success} refined, ${failed} failed. `
+        + `${fullContent}/${success} deep-extracted.`
     );
 }
 

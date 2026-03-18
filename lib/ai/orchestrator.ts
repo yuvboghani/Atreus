@@ -186,5 +186,49 @@ export const orchestrator = {
             console.warn("[AI ERROR] Failed to parse Gap-Fill JSON:", e, jsonString);
             return { data: [] };
         }
+    },
+
+    deepExtract: async (
+        fullMarkdown: string,
+        regexData: any
+    ): Promise<any> => {
+        const systemPrompt = `You are an elite Job Description Analyst.
+    You will receive a FULL job description in Markdown format, plus any fields already extracted by regex.
+    Analyze the ENTIRE description and return a single JSON object with these fields:
+
+    {
+       "salary_min": number | null,
+       "salary_max": number | null,
+       "yoe": number | null,
+       "tech_stack": ["skill1", "skill2"],
+       "location": "City, State" | "Remote" | null,
+       "remote_status": "remote" | "hybrid" | "onsite" | "unknown",
+       "key_priorities": "1-3 sentence summary of what the hiring manager cares about most — the core mission, key deliverables, and ideal candidate traits."
+    }
+
+    Rules:
+    - If regex_data already has a value, keep it unless you found a BETTER match in the full text.
+    - tech_stack: Extract ALL programming languages, frameworks, tools, and platforms mentioned. Normalize to standard names (e.g. "JS" → "JavaScript").
+    - salary: Parse to annual numbers in thousands (e.g. "$120,000" → 120). If a range is given like "$120k-$160k", set min=120, max=160.
+    - key_priorities: This is for a job seeker's "Inside Intel" panel. Be specific and actionable, not generic.
+    - Return ONLY the raw JSON object. No markdown code blocks.`;
+
+        const userPrompt = `REGEX DATA (already extracted):\n${JSON.stringify(regexData, null, 2)}\n\nFULL JOB DESCRIPTION:\n${fullMarkdown}`;
+
+        const rawResponse = await callZhipuAI(
+            systemPrompt, userPrompt, 'glm-4.5-flash'
+        );
+        const jsonString = rawResponse
+            .replace(/```json\n?|\n?```/g, '').trim();
+
+        try {
+            return { data: JSON.parse(jsonString) };
+        } catch (e) {
+            console.warn(
+                "[AI ERROR] Failed to parse Deep Extract JSON:",
+                e, jsonString
+            );
+            return { data: null };
+        }
     }
 };
