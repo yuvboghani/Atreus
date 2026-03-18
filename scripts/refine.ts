@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { refineJob } from '../lib/radar/engine';
 
 const BATCH_SIZE = 20;
+const MAX_BATCH_SIZE = 50;
 const INTER_JOB_DELAY = 3000;
 const INTER_BATCH_DELAY = 5000;
 
@@ -43,12 +44,19 @@ async function main() {
         `[REFINE] ${users?.length || 0} active users.`
     );
 
-    // Fetch ALL pending jobs
+    // Count total queue size first
+    const { count: totalQueue } = await supabase
+        .from('jobs_raw')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_processed', false);
+
+    // Fetch capped batch (freshest first)
     const { data: rawJobs, error } = await supabase
         .from('jobs_raw')
         .select('*')
         .eq('is_processed', false)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .limit(MAX_BATCH_SIZE);
 
     if (error) {
         console.error("[REFINE] Fetch failed:", error);
@@ -60,9 +68,11 @@ async function main() {
         process.exit(0);
     }
 
+    const remaining = (totalQueue || 0) - rawJobs.length;
     console.log(
-        `[REFINE] ${rawJobs.length} jobs × `
-        + `${users?.length || 0} users.`
+        `[REFINE] Processing ${rawJobs.length} jobs `
+        + `(freshest first). `
+        + `${remaining} remaining in queue.`
     );
 
     let success = 0;

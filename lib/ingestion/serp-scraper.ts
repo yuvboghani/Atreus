@@ -34,11 +34,11 @@ const ATS_DOMAINS = [
     "site:hire.trakstar.com",
     "site:catsone.com/careers",
 
-    // Custom Subdomain Catch-alls
-    "inurl:jobs",
-    "inurl:careers",
-    "inurl:people",
-    "inurl:talent"
+    // Custom Subdomain Catch-alls (with noise filter)
+    "inurl:jobs -site:reddit.com -site:substack.com -site:.edu -site:.gov -site:medium.com -site:quora.com",
+    "inurl:careers -site:reddit.com -site:substack.com -site:.edu -site:.gov -site:medium.com -site:quora.com",
+    "inurl:people -site:reddit.com -site:substack.com -site:.edu -site:.gov -site:medium.com -site:quora.com",
+    "inurl:talent -site:reddit.com -site:substack.com -site:.edu -site:.gov -site:medium.com -site:quora.com"
 ];
 
 const MAX_PAGES = 5;
