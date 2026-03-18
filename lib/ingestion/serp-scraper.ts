@@ -77,14 +77,18 @@ async function fetchSerperBatch(
                 body: JSON.stringify({
                     q: fullQuery,
                     tbs: "qdr:d", // Past 24 hours
-                    num: 100
+                    num: 10
                 })
             }
         );
 
         if (!response.ok) {
+            const errBody = await response.text()
+                .catch(() => 'no body');
             console.warn(
                 `[SERP] Batch failed: ${response.status}`
+                + ` | Query: ${fullQuery.substring(0, 60)}`
+                + ` | Body: ${errBody.substring(0, 200)}`
             );
             return [];
         }
