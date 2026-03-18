@@ -8,7 +8,6 @@ import { fetchGreenhouse, fetchLever } from '../lib/ingestion/ats-fetcher';
 import { shouldSkipJob } from '../lib/ingestion/filters';
 import { extractStrongContext } from '../lib/ingestion/parser';
 
-// Direct Supabase client (no Next.js dependency)
 function getSupabase() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,6 +20,21 @@ function getSupabase() {
             persistSession: false,
         },
     });
+}
+
+/**
+ * Extract base domain from a URL.
+ * e.g. "https://boards.greenhouse.io/foo" → "greenhouse.io"
+ */
+function extractDomain(url: string): string {
+    try {
+        const hostname = new URL(url).hostname;
+        const parts = hostname.split('.');
+        // Get last 2 parts (e.g. greenhouse.io)
+        return parts.slice(-2).join('.');
+    } catch {
+        return 'unknown';
+    }
 }
 
 async function checkExists(
@@ -55,6 +69,28 @@ async function main() {
 
     const supabase = getSupabase();
 
+    // Telemetry tracker
+    const telemetry: Record<string, {
+        found: number;
+        passed: number;
+    }> = {};
+
+    function trackFound(url: string) {
+        const domain = extractDomain(url);
+        if (!telemetry[domain]) {
+            telemetry[domain] = { found: 0, passed: 0 };
+        }
+        telemetry[domain].found++;
+    }
+
+    function trackPassed(url: string) {
+        const domain = extractDomain(url);
+        if (!telemetry[domain]) {
+            telemetry[domain] = { found: 0, passed: 0 };
+        }
+        telemetry[domain].passed++;
+    }
+
     // 1. Tier 1: Direct ATS APIs
     console.log("[SCOUT] Tier 1 (Sniper) sweeping...");
     const discordJobs = await fetchGreenhouse("discord");
@@ -82,8 +118,14 @@ async function main() {
             title: job.title,
             company: job.company || "Google SERP",
             url: job.url || job.link
-                || `https://fallback.url/${encodeURIComponent(job.title || 'unknown')
-                }-${encodeURIComponent(job.company || 'unknown')
+                || `https://fallback.url/${
+                    encodeURIComponent(
+                        job.title || 'unknown'
+                    )
+                }-${
+                    encodeURIComponent(
+                        job.company || 'unknown'
+                    )
                 }`,
             snippet: job.snippet,
             source_tier: 'Tier 2'
@@ -92,6 +134,11 @@ async function main() {
 
     const allJobs = [...tier1Jobs, ...tier2Jobs];
     console.log(`[SCOUT] Found ${allJobs.length} total.`);
+
+    // Track all discovered jobs
+    for (const job of allJobs) {
+        trackFound(job.url);
+    }
 
     if (allJobs.length === 0) {
         console.log("[SCOUT] No jobs found. Exiting.");
@@ -104,25 +151,39 @@ async function main() {
         j => !shouldSkipJob(j.title, j.snippet)
     );
     console.log(
-        `[SCOUT] Firewall dropped ${allJobs.length - filtered.length
+        `[SCOUT] Firewall dropped ${
+            allJobs.length - filtered.length
         } senior/lead roles.`
     );
+
+    // Track jobs that survived the firewall
+    for (const job of filtered) {
+        trackPassed(job.url);
+    }
 
     // 4. Deduplication
     console.log("[SCOUT] Deduplicating...");
     let newLeads: any[] = [];
     for (const job of filtered) {
-        const exists = await checkExists(job.url, supabase);
+        const exists = await checkExists(
+            job.url, supabase
+        );
         if (!exists) newLeads.push(job);
     }
 
     if (newLeads.length === 0) {
         console.log("[SCOUT] 0 novel leads. Exiting.");
+        // Print telemetry before exit
+        console.log(
+            "\n📊 OMNI-SCOUT TELEMETRY REPORT:"
+        );
+        console.table(telemetry);
         process.exit(0);
     }
 
     console.log(
-        `[SCOUT] ${newLeads.length} novel leads. Queueing...`
+        `[SCOUT] ${newLeads.length} novel leads.`
+        + ` Queueing...`
     );
 
     // 5. Insert to jobs_raw
@@ -151,6 +212,10 @@ async function main() {
     console.log(
         `[SCOUT] Complete: ${data?.length || 0} queued.`
     );
+
+    // 6. Telemetry Report
+    console.log("\n📊 OMNI-SCOUT TELEMETRY REPORT:");
+    console.table(telemetry);
 }
 
 main().catch(err => {

@@ -77,7 +77,7 @@ async function fetchSerperBatch(
                 body: JSON.stringify({
                     q: fullQuery,
                     tbs: "qdr:d", // Past 24 hours
-                    num: 10
+                    num: 100
                 })
             }
         );

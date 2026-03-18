@@ -1,51 +1,47 @@
 import 'dotenv/config';
-import { scrapeJobPage } from '../lib/utils/scraper';
+import { scrapeJobPage } from '../lib/utils/scraper'; // Adjusted import
 
 const testURLs = [
-    // 1. Greenhouse (Usually easy)
-    "https://boards.greenhouse.io/discord/jobs/8468739002",
-    
-    // 2. Lever (Usually easy)
-    "https://jobs.lever.co/netflix/12345678", // Replace with a real Lever URL if you have one
-    
-    // 3. Workday (Known to have heavy bot protection)
-    "https://lexisnexis.wd3.myworkdayjobs.com/en-US/LexisNexis_Careers/job/Software-Engineer-II",
-    
-    // 4. Ashby or standard careers page
-    "https://jobs.ashbyhq.com/notion/1234" 
+  // 1. Easy ATS
+  "https://boards.greenhouse.io/discord/jobs/8468739002",
+  // 2. High-Security Enterprise (Workday)
+  "https://lexisnexis.wd3.myworkdayjobs.com/en-US/LexisNexis_Careers/job/Software-Engineer-II",
+  // 3. Medium Security (Lever)
+  "https://jobs.lever.co/netflix/12345678", 
+  // 4. Custom Startup ATS
+  "https://jobs.ashbyhq.com/notion/1234"
 ];
 
 async function runDiagnostics() {
-    console.log("🕵️ Starting ATS Scraper Diagnostics...\n");
+  console.log("🕵️ Starting ATS Extraction Diagnostics...\n");
 
-    for (const url of testURLs) {
-        console.log(`\n--------------------------------------------------`);
-        console.log(`📡 Fetching: ${url}`);
-        
-        try {
-            const startTime = Date.now();
-            const markdown = await scrapeJobPage(url);
-            const duration = Date.now() - startTime;
+  for (const url of testURLs) {
+    console.log(`--------------------------------------------------`);
+    console.log(`📡 Fetching: ${url}`);
+    
+    try {
+      const startTime = Date.now();
+      const markdown = await scrapeJobPage(url); 
+      const duration = Date.now() - startTime;
 
-            if (!markdown || markdown.trim().length === 0) {
-                console.log(`❌ FAILED: Returned empty string. (${duration}ms)`);
-                continue;
-            }
+      if (!markdown || markdown.trim().length === 0) {
+        console.log(`❌ FAILED: Returned empty string. (${duration}ms)`);
+        continue;
+      }
 
-            console.log(`✅ SUCCESS: Extracted ${markdown.length} characters in ${duration}ms.`);
-            
-            // Print the first 300 characters to verify it's a job description and not a Cloudflare warning
-            console.log(`\n📄 PREVIEW:\n${markdown.substring(0, 300)}...\n`);
-            
-            if (markdown.includes('Cloudflare') || markdown.includes('human') || markdown.includes('Just a moment')) {
-                 console.log(`🚨 WARNING: Caught by Bot Protection!`);
-            }
+      console.log(`✅ SUCCESS: Extracted ${markdown.length} chars in ${duration}ms.`);
+      console.log(`📄 PREVIEW: ${markdown.substring(0, 150).replace(/\n/g, ' ')}...\n`);
+      
+      if (markdown.toLowerCase().includes('cloudflare') || 
+          markdown.toLowerCase().includes('human')) {
+         console.log(`🚨 WARNING: Caught by Bot Protection!`);
+      }
 
-        } catch (error: any) {
-            console.log(`❌ ERROR: ${error.message}`);
-        }
+    } catch (error: any) {
+      console.log(`❌ ERROR: ${error.message}`);
     }
-    console.log(`\n🏁 Diagnostics Complete.`);
+  }
+  console.log(`🏁 Diagnostics Complete.`);
 }
 
 runDiagnostics();
