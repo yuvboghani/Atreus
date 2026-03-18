@@ -41,7 +41,9 @@ const ATS_DOMAINS = [
     "inurl:talent"
 ];
 
-const BATCH_SIZE = 5;
+const MAX_PAGES = 5;
+const CONCURRENCY = 3;
+const PAGE_DELAY_MS = 500;
 
 export interface SerpJob {
     title: string;
@@ -52,18 +54,18 @@ export interface SerpJob {
 }
 
 /**
- * Run a single Serper query for a batch of
- * ATS domain operators + the user's search term.
+ * Fetch a single page of results for one
+ * domain operator + search query.
  */
-async function fetchSerperBatch(
-    domainBatch: string[],
-    query: string
+async function fetchPage(
+    domainOp: string,
+    query: string,
+    page: number
 ): Promise<SerpJob[]> {
     const apiKey = process.env.SERPER_API_KEY;
     if (!apiKey) return [];
 
-    const domainQuery = domainBatch.join(" OR ");
-    const fullQuery = `(${domainQuery}) ${query}`;
+    const fullQuery = `${domainOp} ${query}`;
 
     try {
         const response = await fetch(
@@ -76,8 +78,9 @@ async function fetchSerperBatch(
                 },
                 body: JSON.stringify({
                     q: fullQuery,
-                    tbs: "qdr:d", // Past 24 hours
-                    num: 10
+                    tbs: "qdr:d",
+                    num: 10,
+                    page: page
                 })
             }
         );
@@ -86,17 +89,22 @@ async function fetchSerperBatch(
             const errBody = await response.text()
                 .catch(() => 'no body');
             console.warn(
-                `[SERP] Batch failed: ${response.status}`
-                + ` | Query: ${fullQuery.substring(0, 60)}`
-                + ` | Body: ${errBody.substring(0, 200)}`
+                `[SERP] ${domainOp} p${page}: `
+                + `${response.status} | `
+                + `${errBody.substring(0, 120)}`
             );
             return [];
         }
 
         const data = await response.json();
 
-        if (!data.organic || !Array.isArray(data.organic))
+        if (
+            !data.organic
+            || !Array.isArray(data.organic)
+            || data.organic.length === 0
+        ) {
             return [];
+        }
 
         return data.organic.map((r: any) => ({
             title: r.title,
@@ -107,15 +115,85 @@ async function fetchSerperBatch(
         }));
 
     } catch (error) {
-        console.error("[SERP] Batch error:", error);
+        console.error(
+            `[SERP] ${domainOp} p${page} error:`,
+            error
+        );
         return [];
     }
 }
 
 /**
- * Fetch Google Jobs across ALL ATS domains,
- * batched into chunks of 5 to stay within
- * Google's query term limits. Runs in parallel.
+ * Deep-paginate a single domain operator.
+ * Fetches up to MAX_PAGES pages, stopping early
+ * if a page returns 0 results.
+ */
+async function deepFetchDomain(
+    domainOp: string,
+    query: string
+): Promise<SerpJob[]> {
+    const allResults: SerpJob[] = [];
+
+    for (let page = 1; page <= MAX_PAGES; page++) {
+        const results = await fetchPage(
+            domainOp, query, page
+        );
+
+        if (results.length === 0) break;
+
+        allResults.push(...results);
+
+        // Brief delay between pages
+        if (page < MAX_PAGES) {
+            await new Promise(
+                r => setTimeout(r, PAGE_DELAY_MS)
+            );
+        }
+    }
+
+    if (allResults.length > 0) {
+        console.log(
+            `[SERP] ${domainOp}: `
+            + `${allResults.length} results`
+        );
+    }
+
+    return allResults;
+}
+
+/**
+ * Process domains in small concurrent batches.
+ * Processes CONCURRENCY domains at a time to avoid
+ * Serper rate limits while staying reasonably fast.
+ */
+async function processInBatches(
+    domains: string[],
+    query: string
+): Promise<SerpJob[]> {
+    const allResults: SerpJob[] = [];
+
+    for (let i = 0; i < domains.length; i += CONCURRENCY) {
+        const batch = domains.slice(i, i + CONCURRENCY);
+
+        const batchResults = await Promise.all(
+            batch.map(domain =>
+                deepFetchDomain(domain, query)
+            )
+        );
+
+        for (const results of batchResults) {
+            allResults.push(...results);
+        }
+    }
+
+    return allResults;
+}
+
+/**
+ * Fetch Google Jobs across ALL ATS domains.
+ * Each domain gets its own isolated query with
+ * up to MAX_PAGES pages of pagination. Domains
+ * are processed in batches of CONCURRENCY.
  */
 export async function fetchGoogleJobs(
     query: string = "Software Engineer"
@@ -128,44 +206,32 @@ export async function fetchGoogleJobs(
         return [];
     }
 
-    // Chunk domains into batches of BATCH_SIZE
-    const batches: string[][] = [];
-    for (let i = 0; i < ATS_DOMAINS.length; i += BATCH_SIZE) {
-        batches.push(
-            ATS_DOMAINS.slice(i, i + BATCH_SIZE)
-        );
-    }
-
     console.log(
-        `[SERP] Launching ${batches.length} batches `
-        + `(${ATS_DOMAINS.length} domains, `
-        + `${BATCH_SIZE}/batch)...`
+        `[SERP] Deep Scan: ${ATS_DOMAINS.length} `
+        + `domains × ${MAX_PAGES} pages max `
+        + `(concurrency: ${CONCURRENCY})`
     );
 
-    // Run all batches in parallel
-    const results = await Promise.all(
-        batches.map(batch =>
-            fetchSerperBatch(batch, query)
-        )
+    const raw = await processInBatches(
+        ATS_DOMAINS, query
     );
 
-    // Flatten + deduplicate by URL
+    // Deduplicate by URL
     const seen = new Set<string>();
-    const allJobs: SerpJob[] = [];
+    const unique: SerpJob[] = [];
 
-    for (const batch of results) {
-        for (const job of batch) {
-            if (!seen.has(job.link)) {
-                seen.add(job.link);
-                allJobs.push(job);
-            }
+    for (const job of raw) {
+        if (!seen.has(job.link)) {
+            seen.add(job.link);
+            unique.push(job);
         }
     }
 
     console.log(
-        `[SERP] ${allJobs.length} unique results `
-        + `from ${batches.length} batches.`
+        `[SERP] ${unique.length} unique results `
+        + `(${raw.length} raw, `
+        + `${raw.length - unique.length} dupes removed)`
     );
 
-    return allJobs;
+    return unique;
 }
