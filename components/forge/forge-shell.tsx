@@ -123,6 +123,7 @@ Core competencies aligned with target stack: ${techStack}.
                     prompt,
                     currentLatex,
                     chatHistory: apiHistory,
+                    jobId: job.id,
                 }),
             });
 

@@ -24,23 +24,24 @@ function getSupabase() {
 }
 
 async function main() {
-    console.log("[REFINE] Native Runner V5 Initialized.");
-    console.log("[REFINE] Deep Content Extraction: ON");
+    console.log("[REFINE] Native Runner V6.");
+    console.log("[REFINE] Multi-Tenant Scoring: ON");
 
     const supabase = getSupabase();
 
-    // Fetch user profile once
-    const { data: profile } = await supabase
+    // Fetch ALL active user profiles
+    const { data: users, error: usersErr } = await supabase
         .from('profiles')
-        .select('*')
-        .limit(1)
-        .single();
+        .select('id, skill_bank, edu_level, current_yoe');
 
-    const userProfile = {
-        skill_bank: profile?.skill_bank || [],
-        edu_level: profile?.edu_level || 2,
-        current_yoe: profile?.current_yoe || 0
-    };
+    if (usersErr) {
+        console.error("[REFINE] Users fetch fail:", usersErr);
+        process.exit(1);
+    }
+
+    console.log(
+        `[REFINE] ${users?.length || 0} active users.`
+    );
 
     // Fetch ALL pending jobs
     const { data: rawJobs, error } = await supabase
@@ -60,8 +61,8 @@ async function main() {
     }
 
     console.log(
-        `[REFINE] ${rawJobs.length} jobs to process `
-        + `(batches of ${BATCH_SIZE}).`
+        `[REFINE] ${rawJobs.length} jobs × `
+        + `${users?.length || 0} users.`
     );
 
     let success = 0;
@@ -83,11 +84,12 @@ async function main() {
         for (const job of batch) {
             try {
                 const result = await refineJob(
-                    job, supabase, userProfile
+                    job, supabase, users || []
                 );
                 if (result) {
                     success++;
-                    if (result.scrape_status === 'full_content')
+                    if (result.scrape_status
+                        === 'full_content')
                         deepCount++;
                 } else {
                     failed++;
@@ -106,7 +108,7 @@ async function main() {
         }
 
         if (i + BATCH_SIZE < rawJobs.length) {
-            console.log("[REFINE] Batch cooldown (5s)...");
+            console.log("[REFINE] Cooldown (5s)...");
             await new Promise(
                 r => setTimeout(r, INTER_BATCH_DELAY)
             );
@@ -116,7 +118,8 @@ async function main() {
     console.log(
         `\n[REFINE] Complete: `
         + `${success} refined, ${failed} failed. `
-        + `${deepCount}/${success} deep-extracted.`
+        + `${deepCount}/${success} deep-extracted. `
+        + `Scored for ${users?.length || 0} users.`
     );
 }
 

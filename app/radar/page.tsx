@@ -14,39 +14,64 @@ export default async function RadarPage() {
     const supabase = await createServerClient();
     if (!supabase) return <div className="p-8 font-mono text-red-500">Database Connection Failed</div>;
 
-    let user: any = null;
+    let userId: string | null = null;
     try {
         const { data } = await supabase.auth.getUser();
-        user = data?.user || null;
+        userId = data?.user?.id || null;
     } catch { /* no session */ }
 
-    // Fetch jobs sorted by match_score
+    // Fetch jobs with per-user match scores via JOIN
     let jobs: any[] | null = null;
     let error: any = null;
 
-    const result1 = await supabase
-        .from('jobs')
-        .select('*')
-        .order('match_score', { ascending: false });
+    if (userId) {
+        // Authenticated: LEFT JOIN user_job_matches
+        const result = await supabase
+            .from('jobs')
+            .select(`
+                *,
+                user_job_matches!left (
+                    match_score,
+                    match_analysis
+                )
+            `)
+            .eq('user_job_matches.user_id', userId)
+            .order('created_at', { ascending: false });
 
-    if (result1.error?.message?.includes('does not exist')) {
-        const result2 = await supabase
+        if (result.error) {
+            // Fallback if junction table doesn't exist yet
+            const fallback = await supabase
+                .from('jobs')
+                .select('*')
+                .order('created_at', { ascending: false });
+            jobs = fallback.data;
+            error = fallback.error;
+        } else {
+            // Flatten the join result
+            jobs = (result.data || []).map(job => {
+                const match = Array.isArray(job.user_job_matches)
+                    ? job.user_job_matches[0]
+                    : job.user_job_matches;
+                return {
+                    ...job,
+                    match_score: match?.match_score ?? 0,
+                    match_analysis: match?.match_analysis ?? null,
+                    user_job_matches: undefined
+                };
+            });
+            // Sort by match score descending
+            jobs.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
+        }
+    } else {
+        // Unauthenticated: no scores
+        const result = await supabase
             .from('jobs')
             .select('*')
             .order('created_at', { ascending: false });
-        jobs = result2.data;
-        error = result2.error;
-
-        if (jobs) {
-            jobs.sort((a, b) => {
-                const scoreA = a.match_score ?? a.metadata?.match_score ?? 0;
-                const scoreB = b.match_score ?? b.metadata?.match_score ?? 0;
-                return scoreB - scoreA;
-            });
-        }
-    } else {
-        jobs = result1.data;
-        error = result1.error;
+        jobs = (result.data || []).map(j => ({
+            ...j, match_score: 0
+        }));
+        error = result.error;
     }
 
     if (error) {
@@ -55,11 +80,11 @@ export default async function RadarPage() {
 
     // User Applications
     let applications: any[] = [];
-    if (user) {
+    if (userId) {
         const { data } = await supabase
             .from('applications')
             .select('job_id, status')
-            .eq('user_id', user.id);
+            .eq('user_id', userId);
         applications = data || [];
     }
 
@@ -70,11 +95,11 @@ export default async function RadarPage() {
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
     let allApps: any[] = [];
-    if (user) {
+    if (userId) {
         const { data } = await supabase
             .from('applications')
             .select('job_id, status, updated_at')
-            .eq('user_id', user.id);
+            .eq('user_id', userId);
         allApps = data || [];
     }
 
@@ -84,7 +109,7 @@ export default async function RadarPage() {
 
     const existingAppJobIds = new Set(allApps.map(a => a.job_id));
     const highMatchTargets = jobs?.filter(job =>
-        ((job.match_score ?? job.metadata?.match_score) || 0) >= 80 && !existingAppJobIds.has(job.id)
+        (job.match_score || 0) >= 80 && !existingAppJobIds.has(job.id)
     ).length || 0;
 
 
@@ -96,7 +121,7 @@ export default async function RadarPage() {
             <div className="flex justify-between items-end mb-8 border-b-2 border-black pb-4">
                 <div>
                     <h1 className="text-6xl font-black tracking-tighter mb-2">THE RADAR</h1>
-                    <p className="font-mono text-sm opacity-60 uppercase tracking-widest">Global Intelligence Grid // V5 Deep Extraction</p>
+                    <p className="font-mono text-sm opacity-60 uppercase tracking-widest">Global Intelligence Grid // V6 Multi-Tenant</p>
                 </div>
                 <div className="flex gap-4">
                     <Button variant="outline" className="font-mono" asChild>
@@ -128,7 +153,6 @@ export default async function RadarPage() {
                             const techStack = job.tech_stack || meta.tech_stack || [];
                             const remote = job.remote_status || meta.remote_status;
 
-                            // Salary: prefer dedicated column
                             let salary = "N/A";
                             if (job.salary_range) {
                                 salary = job.salary_range;
@@ -139,7 +163,7 @@ export default async function RadarPage() {
                             }
 
                             const status = statusMap.get(job.id);
-                            const score = job.match_score ?? meta.match_score ?? 0;
+                            const score = job.match_score || 0;
 
                             return (
                                 <TableRow key={job.id} className="group cursor-pointer">

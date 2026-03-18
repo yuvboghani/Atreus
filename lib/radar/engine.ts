@@ -4,35 +4,21 @@ import { scrapeJobPage } from '../utils/scraper';
 import { createServerClient } from '../../utils/supabase/server';
 
 /**
- * RADAR ENGINE V5 — Deep Content Extraction
+ * RADAR ENGINE V6 — Multi-Tenant
  *
  * 1. Scrape full HTML → Markdown
  * 2. AI Deep Extract (or snippet fallback)
- * 3. Strict match scoring
- * 4. Write to dedicated columns
+ * 3. Insert job to jobs table (no score)
+ * 4. Score per-user → user_job_matches
  * 5. Purge from queue
  */
 export async function refineJob(
     rawJob: any,
     supabase?: any,
-    userProfile?: any
+    users?: any[]
 ) {
     const db = supabase || await createServerClient();
     if (!db) throw new Error("DB connection failed");
-
-    // Profile for scoring (skip fetch if passed)
-    if (!userProfile) {
-        const { data: profile } = await db
-            .from('profiles')
-            .select('*')
-            .limit(1)
-            .single();
-        userProfile = {
-            skill_bank: profile?.skill_bank || [],
-            edu_level: profile?.edu_level || 2,
-            current_yoe: profile?.current_yoe || 0
-        };
-    }
 
     const regex = rawJob.regex_data || {};
     let aiDelta: any = {};
@@ -74,30 +60,16 @@ export async function refineJob(
         ...(aiDelta.tech_stack || [])
     ]));
 
-    // 4. Score
-    const yoeNum = parseInt(regex.yoe || '0')
-        || aiDelta.yoe || 0;
-    const jobParsed = {
-        tech_stack: mergedTech,
-        min_yoe: yoeNum,
-        req_edu: regex.education === 'MS' ? 3
-            : regex.education === 'PhD' ? 4 : 2,
-        is_entry_level: yoeNum <= 2
-    };
-    const match_score = calculateMatchScore(
-        jobParsed, userProfile
-    );
-
-    // 5. Build salary_range string
+    // 4. Build salary_range
     const salaryRange = aiDelta.salary_range
         || (aiDelta.salary_min && aiDelta.salary_max
             ? `$${aiDelta.salary_min}k-$${aiDelta.salary_max}k`
             : null);
 
-    // 6. Insert with dedicated columns
-    const { data, error } = await db
+    // 5. Insert to jobs (NO match_score)
+    const { data: jobData, error } = await db
         .from('jobs')
-        .insert({
+        .upsert({
             title: rawJob.title,
             organization_id:
                 'c1620ab4-b7a4-4000-a540-0b82fb8fde0b',
@@ -106,7 +78,6 @@ export async function refineJob(
             full_description_markdown:
                 fullMarkdown || null,
             scrape_status: scrapeStatus,
-            match_score,
             tech_stack: mergedTech,
             key_priorities:
                 aiDelta.key_priorities || [],
@@ -116,26 +87,77 @@ export async function refineJob(
             metadata: {
                 url: rawJob.absolute_url,
                 source: 'radar_scan',
-                location: aiDelta.location || "Remote",
-                salary_min: aiDelta.salary_min || null,
-                salary_max: aiDelta.salary_max || null,
-                yoe: regex.yoe || aiDelta.yoe || null,
+                location:
+                    aiDelta.location || "Remote",
+                salary_min:
+                    aiDelta.salary_min || null,
+                salary_max:
+                    aiDelta.salary_max || null,
+                yoe:
+                    regex.yoe || aiDelta.yoe || null,
                 req_edu: regex.education || null
             }
-        })
+        }, { onConflict: 'id' })
         .select()
         .single();
 
     if (error) throw error;
 
-    // 7. Purge
+    // 6. Per-user scoring
+    const yoeNum = parseInt(regex.yoe || '0')
+        || aiDelta.yoe || 0;
+    const jobParsed = {
+        tech_stack: mergedTech,
+        min_yoe: yoeNum,
+        req_edu: regex.education === 'MS' ? 3
+            : regex.education === 'PhD' ? 4 : 2,
+        is_entry_level: yoeNum <= 2
+    };
+
+    const activeUsers = users || [];
+    for (const user of activeUsers) {
+        const userProfile = {
+            skill_bank: user.skill_bank || [],
+            edu_level: user.edu_level || 2,
+            current_yoe: user.current_yoe || 0
+        };
+        const score = calculateMatchScore(
+            jobParsed, userProfile
+        );
+
+        // Build match analysis
+        const overlaps = mergedTech.filter(
+            (t: string) => userProfile.skill_bank
+                .map((s: string) => s.toLowerCase())
+                .includes(t.toLowerCase())
+        );
+        const analysis =
+            `Match: ${overlaps.length}/${mergedTech.length} `
+            + `tech overlap.`
+            + (yoeNum > userProfile.current_yoe
+                ? ` YoE gap: needs ${yoeNum}, has ${userProfile.current_yoe}.`
+                : ` YoE: qualified.`);
+
+        await db
+            .from('user_job_matches')
+            .upsert({
+                user_id: user.id,
+                job_id: jobData.id,
+                match_score: score,
+                match_analysis: analysis
+            }, { onConflict: 'user_id,job_id' });
+    }
+
+    // 7. Purge from queue
     await db
         .from('jobs_raw')
         .delete()
         .eq('id', rawJob.id);
 
     console.log(
-        `[ENGINE] ✅ ${data.title} | ${match_score}% | ${scrapeStatus}`
+        `[ENGINE] ✅ ${jobData.title} | `
+        + `${activeUsers.length} users scored `
+        + `| ${scrapeStatus}`
     );
-    return data;
+    return jobData;
 }
