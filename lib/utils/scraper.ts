@@ -26,10 +26,10 @@ const turndown = new TurndownService({
     bulletListMarker: '-'
 });
 
-// Strip nav, footer, scripts, styles
+// Strip nav, footer, scripts, styles, aside
 turndown.remove([
     'script', 'style', 'nav', 'footer',
-    'header', 'iframe', 'noscript'
+    'header', 'iframe', 'noscript', 'aside'
 ]);
 
 /**

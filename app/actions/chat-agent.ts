@@ -22,21 +22,33 @@ export async function sendChatMessage(applicationId: string, userMessage: string
     // 2. Append User Message
     history.push({ role: 'user', content: userMessage });
 
-    // 3. Construct System Prompt (The Interviewer Protocol)
-    // If resume bullets lack metrics/tools, ask questions.
-    // We check context provided from client (e.g. current gaps).
+    // 3. Fetch full JD context for precise tailoring
+    let fullJD = '';
+    if (context.jobId) {
+        const { data: jobData } = await supabase
+            .from('jobs')
+            .select('full_description_markdown, raw_description')
+            .eq('id', context.jobId)
+            .single();
+        fullJD = jobData?.full_description_markdown
+            || jobData?.raw_description || '';
+    }
+
+    // 4. Construct System Prompt (The Interviewer Protocol)
     const systemPrompt = {
         role: 'system',
         content: `You are The Strategist, an elite career advisor for a 10x Engineer.
     CONTEXT:
     - Job: ${context.jobTitle} at ${context.company}
     - Gaps: ${context.gaps || "None detected"}
+    ${fullJD ? `\nFULL JOB DESCRIPTION:\n${fullJD.substring(0, 6000)}` : ''}
     
     PROTOCOL:
     1. Analyze the user's input and history.
     2. If the user's resume details are vague (missing numbers, specific tech), ACT AS AN INTERVIEWER. Ask 1-2 sharp, short questions to extract "Impact" and "Stack".
-    3. Be brutal, concise, and direct. No fluff.
-    4. Start responses with ">" terminal style.
+    3. Use EXACT phrasing from the job description to suggest resume bullet rewrites.
+    4. Be brutal, concise, and direct. No fluff.
+    5. Start responses with ">" terminal style.
     `
     };
 
