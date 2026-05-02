@@ -69,7 +69,7 @@ export async function chatAgent(history: { role: "system" | "user" | "assistant"
             model, // Forcing Plus for reliability
             messages: history,
             temperature: 0.7, // Creative but grounded
-            max_tokens: 2048
+            max_tokens: 4096
         });
         return {
             content: response.choices[0]?.message?.content || "",

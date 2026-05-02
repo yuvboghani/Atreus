@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { chatAgent } from "@/lib/ai/selector";
 import { logTokenUsage } from "@/lib/telemetry";
 
+export const maxDuration = 60; // Prevent Vercel Hobby 10s timeout
+
 const INIT_SYSTEM_PROMPT = `You are an expert Career Operations AI. Your task is to process raw, messy resume text extracted from a PDF/DOCX and structure it into a clean, highly structured Markdown document and extract a list of skills.
 
 Return your response strictly as a JSON object with this exact schema:
@@ -53,11 +55,23 @@ export async function POST(req: NextRequest) {
 
         let parsed;
         try {
-            const cleaned = content.replace(/```json/g, '').replace(/```/g, '').trim();
+            // First attempt: clean typical markdown
+            const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
             parsed = JSON.parse(cleaned);
         } catch (e) {
-            console.error("[ARSENAL_INIT] Failed to parse JSON", content);
-            return NextResponse.json({ error: "AI failed to return valid JSON" }, { status: 500 });
+            console.warn("[ARSENAL_INIT] Standard JSON parse failed, attempting regex extraction...");
+            try {
+                // Fallback: extract the JSON object using regex
+                const match = content.match(/\{[\s\S]*\}/);
+                if (!match) throw new Error("No JSON object found in response");
+                parsed = JSON.parse(match[0]);
+            } catch (fallbackError) {
+                console.error("[ARSENAL_INIT] Total JSON parse failure:", content);
+                return NextResponse.json({ 
+                    error: "AI failed to return valid JSON", 
+                    details: content.substring(0, 200) 
+                }, { status: 500 });
+            }
         }
 
         return NextResponse.json(parsed);
