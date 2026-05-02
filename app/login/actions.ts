@@ -18,8 +18,23 @@ export async function signIn(formData: FormData) {
         redirect(`/login?error=${encodeURIComponent(error.message)}`)
     }
 
+    const { data: userData } = await supabase.auth.getUser()
+    let redirectPath = '/forge' // Default
+
+    if (userData.user) {
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('id', userData.user.id)
+            .single()
+        
+        if (profile && !profile.onboarding_completed) {
+            redirectPath = '/arsenal'
+        }
+    }
+
     revalidatePath('/', 'layout')
-    redirect('/radar')
+    redirect(redirectPath)
 }
 
 export async function signUp(formData: FormData) {
@@ -41,8 +56,22 @@ export async function signUp(formData: FormData) {
         redirect('/login?message=Account created. Please check your email to verify before signing in.')
     }
 
+    let redirectPath = '/forge'
+
+    if (authData.user) {
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('id', authData.user.id)
+            .single()
+        
+        if (profile && !profile.onboarding_completed) {
+            redirectPath = '/arsenal'
+        }
+    }
+
     revalidatePath('/', 'layout')
-    redirect('/radar')
+    redirect(redirectPath)
 }
 
 export async function signOut() {
