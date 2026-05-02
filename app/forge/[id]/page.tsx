@@ -44,7 +44,7 @@ export default async function ForgeWorkspacePage({ params }: { params: Promise<{
             {/* HEADER */}
             <div className="h-14 border-b-2 border-black flex items-center px-4 justify-between bg-white z-10">
                 <div className="flex items-center gap-4">
-                    <Link href="/radar">
+                    <Link href="/forge">
                         <Button variant="ghost" size="icon" className="hover:bg-black hover:text-white rounded-none">
                             <ArrowLeftIcon className="w-5 h-5" />
                         </Button>

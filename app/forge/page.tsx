@@ -28,7 +28,7 @@ export default function ForgePage() {
         setLoading(true);
 
         try {
-            const res = await fetch('/api/ingest/private', {
+            const res = await fetch('/api/forge/ingest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: input })
@@ -50,7 +50,7 @@ export default function ForgePage() {
             <div className="mb-8">
                 <h1 className="text-6xl font-black tracking-tighter mb-2">THE FORGE</h1>
                 <p className="font-mono text-sm opacity-60 uppercase tracking-widest">
-                    Raw Material Ingestion // Target Acquisition
+                    Paste a Job Description // Begin Tailoring
                 </p>
             </div>
 

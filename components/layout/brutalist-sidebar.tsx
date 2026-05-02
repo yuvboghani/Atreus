@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-    RadarIcon,
+    ArchiveIcon,
     CrosshairIcon,
     ShieldIcon,
     SettingsIcon,
@@ -22,6 +22,7 @@ export function BrutalistSidebar() {
     const navItems = [
         { name: 'THE FORGE', path: '/forge', icon: CrosshairIcon, label: 'WORKSPACE' },
         { name: 'THE ARSENAL', path: '/arsenal', icon: ShieldIcon, label: 'PROFILE & ASSETS' },
+        { name: 'THE ARCHIVE', path: '/archive', icon: ArchiveIcon, label: 'DOCUMENT VAULT' },
     ];
 
     return (
