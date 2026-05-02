@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, FormEvent } from 'react';
-import { createClient } from '@/utils/supabase/client';
 import {
     UploadCloudIcon, FileTextIcon, Loader2Icon,
     SendIcon, TerminalIcon, CheckCircleIcon,
@@ -222,33 +221,18 @@ export function ArsenalWorkspace({
         if (isFinalizing) return;
         setIsFinalizing(true);
         try {
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not authenticated');
-
-            // Try with onboarding_completed first.
-            // Falls back if the column isn't in the DB yet.
-            let { error } = await supabase.from('profiles').upsert({
-                id: user.id,
-                resume_text: resumeText,
-                skill_bank: skillBank,
-                onboarding_completed: true,
-                updated_at: new Date().toISOString(),
-            });
-
-            if (error?.message?.includes('onboarding_completed')) {
-                // Column doesn't exist yet — save without it
-                console.warn('[ARSENAL] onboarding_completed column missing, saving without it');
-                const fallback = await supabase.from('profiles').upsert({
-                    id: user.id,
+            const res = await fetch('/api/arsenal/finalize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
                     resume_text: resumeText,
                     skill_bank: skillBank,
-                    updated_at: new Date().toISOString(),
-                });
-                error = fallback.error;
-            }
+                }),
+            });
 
-            if (error) throw error;
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Finalize failed');
+
             window.location.href = '/forge';
         } catch (err: any) {
             alert(`Finalize failed: ${err.message}`);

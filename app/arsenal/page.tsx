@@ -17,11 +17,13 @@ export default async function ArsenalPage() {
 
     let profile = null;
     if (user) {
+        // Select only the core columns that always exist.
+        // onboarding_completed may not be in schema yet.
         const { data } = await supabase
             .from('profiles')
-            .select('resume_text, skill_bank, onboarding_completed')
+            .select('resume_text, skill_bank')
             .eq('id', user.id)
-            .single();
+            .maybeSingle();
         profile = data;
     }
 
@@ -29,7 +31,7 @@ export default async function ArsenalPage() {
         <ArsenalWorkspace
             initialResumeText={profile?.resume_text || ""}
             initialSkillBank={profile?.skill_bank || []}
-            isOnboarded={profile?.onboarding_completed || false}
+            isOnboarded={false}
         />
     );
 }
