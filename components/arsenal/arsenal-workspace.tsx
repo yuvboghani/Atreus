@@ -474,17 +474,40 @@ export function ArsenalWorkspace({
                                 {skillBank.length} SKILLS
                             </span>
                         </div>
-                        <div className="flex gap-2 flex-wrap p-4 border-2 border-black bg-white min-h-[80px]">
-                            {skillBank.map((skill) => (
-                                <Badge
-                                    key={skill}
-                                    variant="outline"
-                                    className="border-black group cursor-pointer hover:bg-red-500 hover:text-white hover:border-red-500 transition-colors pr-1"
-                                    onClick={() => removeSkill(skill)}
-                                >
-                                    {skill}
-                                    <XIcon className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                </Badge>
+                        <div className="space-y-4 p-4 border-2 border-black bg-white min-h-[80px]">
+                            {Object.entries(
+                                skillBank.reduce((acc, skillString) => {
+                                    const [category, skill] = skillString.includes('|') 
+                                        ? skillString.split('|') 
+                                        : ['Other', skillString];
+                                    if (!acc[category]) acc[category] = [];
+                                    acc[category].push(skillString);
+                                    return acc;
+                                }, {} as Record<string, string[]>)
+                            ).map(([category, skills]) => (
+                                <div key={category} className="space-y-2">
+                                    <h3 className="font-mono text-[10px] uppercase font-bold tracking-widest text-black/60 border-b border-black/10 pb-1">
+                                        {category}
+                                    </h3>
+                                    <div className="flex gap-2 flex-wrap">
+                                        {skills.map((originalSkillStr) => {
+                                            const displaySkill = originalSkillStr.includes('|') 
+                                                ? originalSkillStr.split('|')[1] 
+                                                : originalSkillStr;
+                                            return (
+                                                <Badge
+                                                    key={originalSkillStr}
+                                                    variant="outline"
+                                                    className="border-black group cursor-pointer hover:bg-red-500 hover:text-white hover:border-red-500 transition-colors pr-1"
+                                                    onClick={() => removeSkill(originalSkillStr)}
+                                                >
+                                                    {displaySkill}
+                                                    <XIcon className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                </Badge>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
                             ))}
                             {skillBank.length === 0 && (
                                 <span className="font-mono text-xs opacity-30">

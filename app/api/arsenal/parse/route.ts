@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as mammoth from 'mammoth';
+import { extractText, getDocumentProxy } from 'unpdf';
 
 /**
  * Arsenal Parse API — Direct file upload (no storage bucket).
@@ -19,15 +20,15 @@ export async function POST(req: NextRequest) {
         }
 
         const buffer = await file.arrayBuffer();
-        const nodeBuffer = Buffer.from(buffer);
         const fileName = file.name.toLowerCase();
         let text = "";
 
         if (fileName.endsWith('.pdf')) {
-            const pdfParse = require('pdf-parse');
-            const pdfData = await pdfParse(nodeBuffer);
-            text = pdfData.text;
+            const pdf = await getDocumentProxy(new Uint8Array(buffer));
+            const extracted = await extractText(pdf);
+            text = Array.isArray(extracted.text) ? extracted.text.join('\n') : extracted.text;
         } else if (fileName.endsWith('.docx')) {
+            const nodeBuffer = Buffer.from(buffer);
             const result = await mammoth.extractRawText(
                 { buffer: nodeBuffer }
             );
