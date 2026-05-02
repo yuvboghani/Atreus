@@ -20,7 +20,6 @@ export function BrutalistSidebar() {
     const pathname = usePathname();
 
     const navItems = [
-        { name: 'THE RADAR', path: '/radar', icon: RadarIcon, label: 'JOB INTELLIGENCE' },
         { name: 'THE FORGE', path: '/forge', icon: CrosshairIcon, label: 'WORKSPACE' },
         { name: 'THE ARSENAL', path: '/arsenal', icon: ShieldIcon, label: 'PROFILE & ASSETS' },
     ];

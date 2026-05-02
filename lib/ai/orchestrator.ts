@@ -240,5 +240,40 @@ export const orchestrator = {
             );
             return { data: null };
         }
+    },
+
+    tailor: async ({ url, rawText, mode }: { url: string, rawText: string, mode?: string }): Promise<any> => {
+        const systemPrompt = `You are an Expert Career Strategist & LaTeX Engineer. 
+    You have received raw, noisy text scraped from a webpage ([URL: ${url}]).
+
+    TASK:
+    1. EXTRACT: Filter out navigation, footers, and ads. Identify the core Job Description.
+    2. STRATEGIZE: Identify the top 3 requirements the employer is desperate for.
+    3. FORGE: Rewrite the candidate's core resume (placeholder below) to hyper-target these needs.
+    
+    Output STRICTLY VALID JSON:
+    {
+      "job_summary": {
+        "title": "Extracted Title",
+        "company": "Extracted Company",
+        "requirements": ["Req 1", "Req 2", "Req 3"]
+      },
+      "strategy": "Your reasoning for the tailoring approach.",
+      "latex_content": "Full tailored LaTeX string (based on a high-end template).",
+      "cover_letter": "A short, punchy, non-generic cover letter."
+    }
+    `;
+
+        const userPrompt = `RAW SCRAPED TEXT:\n${rawText.substring(0, 15000)}`;
+
+        const rawResponse = await callZhipuAI(systemPrompt, userPrompt, 'glm-4-plus');
+        const jsonString = rawResponse.replace(/```json\n?|\n?```/g, '').trim();
+
+        try {
+            return JSON.parse(jsonString);
+        } catch (e) {
+            console.error("Tailor parsing failed:", e);
+            throw new Error("Failed to generate tailored assets from raw text.");
+        }
     }
 };
