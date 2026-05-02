@@ -1,52 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@/utils/supabase/server";
 import * as mammoth from 'mammoth';
 
+/**
+ * Arsenal Parse API — Direct file upload (no storage bucket).
+ * Accepts a FormData body with a single 'file' field.
+ * Returns { text: string } with the extracted raw text.
+ */
 export async function POST(req: NextRequest) {
     try {
-        const { filePath } = await req.json();
-        if (!filePath) {
-            return NextResponse.json({ error: "Missing filePath" }, { status: 400 });
+        const formData = await req.formData();
+        const file = formData.get('file') as File | null;
+
+        if (!file) {
+            return NextResponse.json(
+                { error: "No file provided" },
+                { status: 400 }
+            );
         }
 
-        const supabase = await createServerClient();
-        if (!supabase) {
-             return NextResponse.json({ error: "Supabase client not initialized" }, { status: 500 });
-        }
-
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user) {
-             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
-
-        const { data, error } = await supabase.storage
-            .from('arsenal_uploads')
-            .download(filePath);
-
-        if (error || !data) {
-            return NextResponse.json({ error: "Failed to download file" }, { status: 404 });
-        }
-
-        const buffer = await data.arrayBuffer();
+        const buffer = await file.arrayBuffer();
         const nodeBuffer = Buffer.from(buffer);
+        const fileName = file.name.toLowerCase();
         let text = "";
 
-        if (filePath.toLowerCase().endsWith('.pdf')) {
+        if (fileName.endsWith('.pdf')) {
             const pdfParse = require('pdf-parse');
             const pdfData = await pdfParse(nodeBuffer);
             text = pdfData.text;
-        } else if (filePath.toLowerCase().endsWith('.docx')) {
-            const result = await mammoth.extractRawText({ buffer: nodeBuffer });
+        } else if (fileName.endsWith('.docx')) {
+            const result = await mammoth.extractRawText(
+                { buffer: nodeBuffer }
+            );
             text = result.value;
         } else {
-            return NextResponse.json({ error: "Unsupported file type" }, { status: 400 });
+            return NextResponse.json(
+                { error: "Unsupported file type. Use PDF or DOCX." },
+                { status: 400 }
+            );
+        }
+
+        if (!text.trim()) {
+            return NextResponse.json(
+                { error: "No text could be extracted from the file." },
+                { status: 422 }
+            );
         }
 
         return NextResponse.json({ text });
 
     } catch (error: any) {
         console.error("[ARSENAL_PARSE] Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json(
+            { error: error.message },
+            { status: 500 }
+        );
     }
 }

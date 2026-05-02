@@ -72,29 +72,22 @@ export function ArsenalWorkspace({
         }
 
         try {
-            // Step 1: Upload to Supabase storage
-            setUploadStatus('uploading');
-            const supabase = createClient();
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not authenticated');
-
-            const filePath = `${user.id}/${Date.now()}_${file.name}`;
-            const { error: uploadErr } = await supabase.storage
-                .from('arsenal_uploads')
-                .upload(filePath, file);
-            if (uploadErr) throw uploadErr;
-
-            // Step 2: Parse the file
+            // Step 1: Send file directly to parse API
             setUploadStatus('parsing');
+            const formData = new FormData();
+            formData.append('file', file);
+
             const parseRes = await fetch('/api/arsenal/parse', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath }),
+                body: formData,
             });
-            if (!parseRes.ok) throw new Error('Parse failed');
+            if (!parseRes.ok) {
+                const err = await parseRes.json().catch(() => ({}));
+                throw new Error(err.error || 'Parse failed');
+            }
             const { text: rawText } = await parseRes.json();
 
-            // Step 3: Initialize with AI
+            // Step 2: Initialize with AI
             setUploadStatus('initializing');
             const initRes = await fetch('/api/arsenal/init', {
                 method: 'POST',
@@ -300,8 +293,7 @@ export function ArsenalWorkspace({
                                 <Loader2Icon className="w-12 h-12 animate-spin opacity-40" />
                             )}
                             <div className="font-mono text-sm uppercase tracking-widest">
-                                {uploadStatus === 'uploading' && 'Uploading to vault...'}
-                                {uploadStatus === 'parsing' && 'Extracting text...'}
+                                {uploadStatus === 'parsing' && 'Extracting text from file...'}
                                 {uploadStatus === 'initializing' && 'AI is structuring your profile...'}
                                 {uploadStatus === 'done' && 'Profile Ready. Loading workspace...'}
                             </div>
