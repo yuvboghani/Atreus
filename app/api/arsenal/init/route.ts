@@ -1,83 +1,137 @@
-import { NextRequest, NextResponse } from "next/server";
-import { chatAgent } from "@/lib/ai/selector";
-import { logTokenUsage } from "@/lib/telemetry";
+import { NextRequest } from "next/server";
+import OpenAI from "openai";
 
-export const maxDuration = 60; // Prevent Vercel Hobby 10s timeout
+/**
+ * Edge Runtime — no 10s timeout on Vercel Hobby.
+ * Streams the AI response as NDJSON lines back to the
+ * client so the connection stays alive during generation.
+ */
+export const runtime = "edge";
 
-const INIT_SYSTEM_PROMPT = `You are an expert Career Operations AI. Your task is to process raw, messy resume text extracted from a PDF/DOCX and structure it into a clean, highly structured Markdown document and extract a list of skills.
+const INIT_SYSTEM_PROMPT = `You are an expert Career Operations AI.
+Process raw resume text and return a SINGLE valid JSON object.
+No markdown code blocks. No explanation. Only JSON.
 
-Return your response strictly as a JSON object with this exact schema:
+Schema:
 {
-  "resume_text": "The full formatted markdown of the resume. MUST follow the EXACT structure below.",
-  "skill_bank": ["Languages|Python", "Languages|Java", "ML and Data|PyTorch", "Frameworks and Libraries|React", "Relevant Coursework|Algorithms", "Other|Git"]
+  "resume_text": "Structured markdown of the resume",
+  "skill_bank": ["Languages|Python", "ML and Data|PyTorch"]
 }
 
-resume_text MUST BE FORMATTED EXACTLY LIKE THIS (include only sections that have data):
+resume_text format (include only sections that have data):
 ## Experiences
-### Company Name - Role (Date)
-- Bullet point 1
-- Bullet point 2
+### Company - Role (Date)
+- Bullet point
 
 ## Research
-### Institution Name - Role (Date)
-- Bullet point 1
+### Institution - Role (Date)
+- Bullet point
 
 ## Publications
-- Title, Venue, Date, Link
+- Title, Venue, Date
 
 ## Projects
 ### Project Name (Date)
-- Bullet point 1
-- Bullet point 2
+- Bullet point
 
 RULES:
-1. Fix any OCR or parsing errors.
-2. Format chronologically with clear headers and bullet points.
-3. The skill_bank array MUST categorize every skill by prepending the category and a pipe character (e.g., "Category|Skill").
-4. Valid categories for skill_bank: Languages, ML and Data, Frameworks and Libraries, Relevant Coursework, Other.
-5. Output ONLY valid JSON.`;
+1. Fix OCR/parsing errors.
+2. Format chronologically.
+3. skill_bank: prefix each skill with its category and | separator.
+4. Valid categories: Languages, ML and Data, Frameworks and Libraries, Relevant Coursework, Other.
+5. Output ONLY the raw JSON object. Nothing else.`;
 
 export async function POST(req: NextRequest) {
-    try {
-        const { rawText } = await req.json();
-        
-        if (!rawText) {
-             return NextResponse.json({ error: "Missing rawText" }, { status: 400 });
-        }
+    const { rawText } = await req.json();
 
-        const messages = [
-            { role: "system" as const, content: INIT_SYSTEM_PROMPT },
-            { role: "user" as const, content: `RAW TEXT:\n${rawText.substring(0, 15000)}` }
-        ];
-
-        const { content, usage } = await chatAgent(messages);
-        logTokenUsage('[ARSENAL_INIT]', usage, 'glm-4-plus');
-
-        let parsed;
-        try {
-            // First attempt: clean typical markdown
-            const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
-            parsed = JSON.parse(cleaned);
-        } catch (e) {
-            console.warn("[ARSENAL_INIT] Standard JSON parse failed, attempting regex extraction...");
-            try {
-                // Fallback: extract the JSON object using regex
-                const match = content.match(/\{[\s\S]*\}/);
-                if (!match) throw new Error("No JSON object found in response");
-                parsed = JSON.parse(match[0]);
-            } catch (fallbackError) {
-                console.error("[ARSENAL_INIT] Total JSON parse failure:", content);
-                return NextResponse.json({ 
-                    error: "AI failed to return valid JSON", 
-                    details: content.substring(0, 200) 
-                }, { status: 500 });
-            }
-        }
-
-        return NextResponse.json(parsed);
-
-    } catch (error: any) {
-        console.error("[ARSENAL_INIT] Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!rawText) {
+        return new Response(
+            JSON.stringify({ error: "Missing rawText" }),
+            { status: 400, headers: { "Content-Type": "application/json" } }
+        );
     }
+
+    const openai = new OpenAI({
+        apiKey: process.env.ZAI_API_KEY,
+        baseURL: "https://open.bigmodel.cn/api/paas/v4/",
+    });
+
+    // Stream from the AI
+    const stream = await openai.chat.completions.create({
+        model: "glm-4.5",
+        messages: [
+            { role: "system", content: INIT_SYSTEM_PROMPT },
+            {
+                role: "user",
+                content: `RAW TEXT:\n${rawText.substring(0, 12000)}`
+            }
+        ],
+        temperature: 0.3,
+        max_tokens: 4096,
+        stream: true,
+    });
+
+    // Accumulate the full response, then flush as one JSON
+    // via a TransformStream so the connection stays alive
+    const encoder = new TextEncoder();
+
+    const readable = new ReadableStream({
+        async start(controller) {
+            let accumulated = "";
+            try {
+                for await (const chunk of stream) {
+                    const delta = chunk.choices[0]?.delta?.content ?? "";
+                    accumulated += delta;
+                    // Send a keep-alive comment so Vercel
+                    // doesn't kill the connection
+                    controller.enqueue(
+                        encoder.encode(`: chunk\n`)
+                    );
+                }
+
+                // Parse and flush the final result
+                let parsed: any = null;
+                try {
+                    const clean = accumulated
+                        .replace(/```json/gi, "")
+                        .replace(/```/g, "")
+                        .trim();
+                    parsed = JSON.parse(clean);
+                } catch {
+                    const match = accumulated.match(/\{[\s\S]*\}/);
+                    if (match) parsed = JSON.parse(match[0]);
+                }
+
+                if (!parsed) {
+                    controller.enqueue(
+                        encoder.encode(
+                            `data: ${JSON.stringify({ error: "Parse failed" })}\n\n`
+                        )
+                    );
+                } else {
+                    controller.enqueue(
+                        encoder.encode(
+                            `data: ${JSON.stringify({ result: parsed })}\n\n`
+                        )
+                    );
+                }
+            } catch (err: any) {
+                controller.enqueue(
+                    encoder.encode(
+                        `data: ${JSON.stringify({ error: err.message })}\n\n`
+                    )
+                );
+            } finally {
+                controller.close();
+            }
+        },
+    });
+
+    return new Response(readable, {
+        headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    });
 }

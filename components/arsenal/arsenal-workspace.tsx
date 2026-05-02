@@ -62,6 +62,36 @@ export function ArsenalWorkspace({
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatHistory]);
 
+    // ─── SHARED: read SSE stream from /api/arsenal/init ───
+    const readInitStream = useCallback(async (rawText: string) => {
+        const res = await fetch('/api/arsenal/init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rawText }),
+        });
+        if (!res.ok || !res.body) throw new Error('AI initialization failed');
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+        }
+
+        // Extract the data: {...} line from the SSE buffer
+        const dataLine = buffer
+            .split('\n')
+            .find(l => l.startsWith('data: '));
+        if (!dataLine) throw new Error('No data received from AI');
+
+        const envelope = JSON.parse(dataLine.slice(6));
+        if (envelope.error) throw new Error(envelope.error);
+        return envelope.result as { resume_text: string; skill_bank: string[] };
+    }, []);
+
     // ─── FILE UPLOAD ─────────────────────────────
     const processFile = useCallback(async (file: File) => {
         setUploadError('');
@@ -87,15 +117,9 @@ export function ArsenalWorkspace({
             }
             const { text: rawText } = await parseRes.json();
 
-            // Step 2: Initialize with AI
+            // Step 2: Initialize with AI (streamed)
             setUploadStatus('initializing');
-            const initRes = await fetch('/api/arsenal/init', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rawText }),
-            });
-            if (!initRes.ok) throw new Error('AI initialization failed');
-            const { resume_text, skill_bank } = await initRes.json();
+            const { resume_text, skill_bank } = await readInitStream(rawText);
 
             setResumeText(resume_text);
             setSkillBank(skill_bank);
@@ -112,13 +136,7 @@ export function ArsenalWorkspace({
         if (!rawPasteText.trim()) return;
         try {
             setUploadStatus('initializing');
-            const initRes = await fetch('/api/arsenal/init', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rawText: rawPasteText }),
-            });
-            if (!initRes.ok) throw new Error('AI initialization failed');
-            const { resume_text, skill_bank } = await initRes.json();
+            const { resume_text, skill_bank } = await readInitStream(rawPasteText);
 
             setResumeText(resume_text);
             setSkillBank(skill_bank);
@@ -128,7 +146,7 @@ export function ArsenalWorkspace({
             setUploadStatus('error');
             setUploadError(err.message || 'Initialization failed');
         }
-    }, [rawPasteText]);
+    }, [rawPasteText, readInitStream]);
 
     // Drag handlers
     const handleDragOver = (e: React.DragEvent) => {
