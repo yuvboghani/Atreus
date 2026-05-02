@@ -5,14 +5,11 @@ import { logTokenUsage } from "@/lib/telemetry";
 
 /**
  * Standalone Forge Ingestion API
- * Accepts raw job description text pasted by the user.
- * Extracts metadata via AI, saves to the jobs table,
- * returns the job ID for the Forge workspace.
- *
- * Resilient against:
- * - Missing organization_id (uses maybeSingle)
- * - Missing columns (full_description_markdown etc.)
- * - AI extraction failures (falls back to minimal data)
+ * 
+ * Resilient against missing columns — only writes to columns
+ * that exist in the core schema (id, title, company, metadata).
+ * Extra columns (url, raw_description, status, source) go into
+ * the metadata JSONB until the migration is applied.
  */
 export async function POST(req: Request) {
     try {
@@ -48,8 +45,8 @@ export async function POST(req: Request) {
             };
         }
 
-        // Resolve organization_id — use maybeSingle so it
-        // doesn't throw on an empty jobs table
+        // Resolve organization_id — maybeSingle so it never
+        // throws on an empty jobs table
         let orgId: string | null = null;
         try {
             const { data: sample } = await supabase
@@ -60,61 +57,75 @@ export async function POST(req: Request) {
                 .maybeSingle();
             orgId = sample?.organization_id ?? null;
         } catch {
-            // org_id is optional — continue without it
+            // optional — continue without it
         }
 
-        // Build a minimal, safe payload that only uses
-        // columns guaranteed to exist in the live schema
+        const manualUrl = `manual://${Date.now()}`;
+
+        // Core payload — only guaranteed columns from the original schema
+        // Everything else is stored in metadata JSONB
         const jobPayload: Record<string, any> = {
             title: extracted.title || "Untitled Position",
             company: extracted.company || "Unknown Company",
-            raw_description: text,
-            status: "tailoring",
-            url: `manual://${Date.now()}`,
             metadata: {
                 ...extracted,
+                source: "manual_paste",
+                manual_url: manualUrl,
+                raw_description: text,
                 raw_input_length: text.length,
                 extraction_method: "glm-4.5-flash",
-                source: "manual_paste",
             },
         };
 
         if (orgId) jobPayload.organization_id = orgId;
 
-        // Try inserting — if a column error occurs,
-        // retry with an even more minimal payload
+        // First attempt — try with extra optional columns
+        // that exist after running migration 014
+        const fullPayload = {
+            ...jobPayload,
+            raw_description: text,
+            status: "tailoring",
+            source: "manual_paste",
+            url: manualUrl,
+        };
+
         let insertData: any = null;
         let insertError: any = null;
 
         ({ data: insertData, error: insertError } = await supabase
             .from("jobs")
-            .insert(jobPayload)
+            .insert(fullPayload)
             .select("id")
             .single());
 
-        if (insertError) {
-            // If the error is about an unknown column,
-            // strip metadata and retry
-            if (insertError.message?.includes("column")) {
-                console.warn(
-                    "[FORGE] Column error, retrying with minimal payload:",
-                    insertError.message
-                );
-                const minimal: Record<string, any> = {
-                    title: jobPayload.title,
-                    company: jobPayload.company,
-                    raw_description: jobPayload.raw_description,
-                    status: "tailoring",
-                    url: jobPayload.url,
-                };
-                if (orgId) minimal.organization_id = orgId;
+        // If a column doesn't exist yet, fall back to core-only payload
+        if (insertError?.message?.includes("column")) {
+            console.warn(
+                "[FORGE] Column error on full payload, retrying with core only:",
+                insertError.message
+            );
 
-                ({ data: insertData, error: insertError } = await supabase
-                    .from("jobs")
-                    .insert(minimal)
-                    .select("id")
-                    .single());
-            }
+            ({ data: insertData, error: insertError } = await supabase
+                .from("jobs")
+                .insert(jobPayload)
+                .select("id")
+                .single());
+        }
+
+        // Last resort — absolute minimum
+        if (insertError?.message?.includes("column")) {
+            console.warn("[FORGE] Retrying with absolute minimum payload");
+            const bare: Record<string, any> = {
+                title: jobPayload.title,
+                company: jobPayload.company,
+            };
+            if (orgId) bare.organization_id = orgId;
+
+            ({ data: insertData, error: insertError } = await supabase
+                .from("jobs")
+                .insert(bare)
+                .select("id")
+                .single());
         }
 
         if (insertError) throw insertError;
