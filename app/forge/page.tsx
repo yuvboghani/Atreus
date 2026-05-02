@@ -34,14 +34,18 @@ export default function ForgePage() {
                 body: JSON.stringify({ text: input })
             });
 
-            if (!res.ok) throw new Error('Ingestion failed');
+            const data = await res.json();
 
-            const { id } = await res.json();
-            router.push(`/forge/${id}`);
-        } catch (e) {
-            console.error(e);
+            if (!res.ok) {
+                throw new Error(data.error || `Server error ${res.status}`);
+            }
+
+            if (!data.id) throw new Error('No job ID returned');
+            router.push(`/forge/${data.id}`);
+        } catch (e: any) {
+            console.error('[FORGE] Ingestion error:', e);
             setLoading(false);
-            alert('Failed to ingest job. Please try again.');
+            alert(`Ingestion failed: ${e.message}`);
         }
     };
 
