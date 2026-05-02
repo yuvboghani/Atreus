@@ -437,39 +437,107 @@ export function ArsenalWorkspace({
                     </form>
                 </div>
 
-                {/* ─── RIGHT PANE: DATA DISPLAY ─── */}
-                <div className="flex-1 overflow-auto bg-[#F4F4F0] p-8 space-y-8">
+                {/* ─── RIGHT PANE: STRUCTURED DISPLAY ─── */}
+                <div className="flex-1 overflow-auto bg-[#F4F4F0] p-8 space-y-6">
 
-                    {/* Resume Text */}
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                            <FileTextIcon className="w-5 h-5" />
-                            <h2 className="text-xl font-bold uppercase">
-                                Resume Data
-                            </h2>
-                            <span className="font-mono text-[10px] opacity-40 ml-auto">
-                                {resumeText.length} CHARS
-                            </span>
-                        </div>
-                        <div className="relative">
-                            <div className="absolute -top-3 left-4 bg-[#F4F4F0] px-2 font-mono text-xs font-bold border-2 border-black border-b-0 z-10">
-                                RESUME_TEXT
+                    {/* ── Parsed Resume Sections ── */}
+                    {(() => {
+                        // Parse markdown into sections
+                        const SECTION_ORDER = ['Experiences', 'Research', 'Publications', 'Projects'];
+                        const sections: Record<string, string> = {};
+                        let current = '';
+                        for (const line of resumeText.split('\n')) {
+                            const h2 = line.match(/^##\s+(.+)/);
+                            if (h2) {
+                                current = h2[1].trim();
+                                sections[current] = '';
+                            } else if (current) {
+                                sections[current] += line + '\n';
+                            }
+                        }
+
+                        const orderedKeys = [
+                            ...SECTION_ORDER.filter(k => sections[k]),
+                            ...Object.keys(sections).filter(k => !SECTION_ORDER.includes(k))
+                        ];
+
+                        if (orderedKeys.length === 0) return (
+                            <div className="border-2 border-black bg-white p-6 font-mono text-xs opacity-40 text-center">
+                                No structured data yet — upload a resume or use the chat
                             </div>
-                            <textarea
-                                value={resumeText}
-                                onChange={e => setResumeText(e.target.value)}
-                                className="w-full h-[450px] p-6 font-mono text-xs leading-relaxed border-2 border-black bg-white resize-none focus:outline-none"
-                            />
-                        </div>
-                    </div>
+                        );
 
-                    {/* Skill Bank */}
+                        return orderedKeys.map(sectionName => {
+                            const body = sections[sectionName] || '';
+                            // Split into sub-entries by ### heading
+                            const entries: { heading: string; bullets: string[] }[] = [];
+                            let currentEntry: { heading: string; bullets: string[] } | null = null;
+                            let looseBullets: string[] = [];
+
+                            for (const line of body.split('\n')) {
+                                const h3 = line.match(/^###\s+(.+)/);
+                                const bullet = line.match(/^[-*]\s+(.+)/);
+                                if (h3) {
+                                    if (currentEntry) entries.push(currentEntry);
+                                    currentEntry = { heading: h3[1].trim(), bullets: [] };
+                                } else if (bullet) {
+                                    if (currentEntry) currentEntry.bullets.push(bullet[1]);
+                                    else looseBullets.push(bullet[1]);
+                                }
+                            }
+                            if (currentEntry) entries.push(currentEntry);
+
+                            return (
+                                <div key={sectionName} className="space-y-3">
+                                    {/* Section header — same style as Skill Bank header */}
+                                    <div className="flex items-center gap-2">
+                                        <FileTextIcon className="w-5 h-5" />
+                                        <h2 className="text-xl font-bold uppercase">{sectionName}</h2>
+                                        <span className="font-mono text-[10px] opacity-40 ml-auto">
+                                            {entries.length > 0 ? `${entries.length} ENTRIES` : `${looseBullets.length} ITEMS`}
+                                        </span>
+                                    </div>
+
+                                    {/* Card — same white bordered card as Skill Bank */}
+                                    <div className="space-y-4 p-4 border-2 border-black bg-white min-h-[60px]">
+                                        {/* Loose bullets (e.g. Publications which have no ### heading) */}
+                                        {looseBullets.length > 0 && (
+                                            <div className="space-y-1">
+                                                {looseBullets.map((b, i) => (
+                                                    <div key={i} className="flex gap-2 text-xs font-mono leading-relaxed">
+                                                        <span className="opacity-30 shrink-0">–</span>
+                                                        <span>{b}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Sub-entries with headings */}
+                                        {entries.map((entry, i) => (
+                                            <div key={i} className="space-y-1">
+                                                {/* Sub-heading — same style as skill category label */}
+                                                <h3 className="font-mono text-[10px] uppercase font-bold tracking-widest text-black/60 border-b border-black/10 pb-1">
+                                                    {entry.heading}
+                                                </h3>
+                                                {entry.bullets.map((b, j) => (
+                                                    <div key={j} className="flex gap-2 text-xs font-mono leading-relaxed">
+                                                        <span className="opacity-30 shrink-0">–</span>
+                                                        <span>{b}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        });
+                    })()}
+
+                    {/* ── Skill Bank ── */}
                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
                             <div className="w-5 h-5 border-2 border-black flex items-center justify-center font-bold text-xs">#</div>
-                            <h2 className="text-xl font-bold uppercase">
-                                Skill Bank
-                            </h2>
+                            <h2 className="text-xl font-bold uppercase">Skill Bank</h2>
                             <span className="font-mono text-[10px] opacity-40 ml-auto">
                                 {skillBank.length} SKILLS
                             </span>
@@ -477,9 +545,9 @@ export function ArsenalWorkspace({
                         <div className="space-y-4 p-4 border-2 border-black bg-white min-h-[80px]">
                             {Object.entries(
                                 skillBank.reduce((acc, skillString) => {
-                                    const [category, skill] = skillString.includes('|') 
-                                        ? skillString.split('|') 
-                                        : ['Other', skillString];
+                                    const [category] = skillString.includes('|')
+                                        ? skillString.split('|')
+                                        : ['Other'];
                                     if (!acc[category]) acc[category] = [];
                                     acc[category].push(skillString);
                                     return acc;
@@ -491,8 +559,8 @@ export function ArsenalWorkspace({
                                     </h3>
                                     <div className="flex gap-2 flex-wrap">
                                         {skills.map((originalSkillStr) => {
-                                            const displaySkill = originalSkillStr.includes('|') 
-                                                ? originalSkillStr.split('|')[1] 
+                                            const displaySkill = originalSkillStr.includes('|')
+                                                ? originalSkillStr.split('|')[1]
                                                 : originalSkillStr;
                                             return (
                                                 <Badge
